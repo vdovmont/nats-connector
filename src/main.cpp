@@ -1,5 +1,5 @@
+#include "MathPicker.h"
 #include "NatsPublisher.h"
-#include "NatsSubscriber.h"
 #include <thread>
 #include <chrono>
 
@@ -12,13 +12,13 @@ void sleepingFunction() {
 
 int main() {
     std::string serverUrl = "nats://localhost:4222"; //example server URL
-    std::string clinetsChannel = "clients.*"; //example of common channel for clients
-    NatsSubscriber subscriber;
+    std::string clientsChannel = "Clients.*"; //example of common channel for clients
+    MathPicker mathPicker;
 
-    bool status = subscriber.initialize(serverUrl, clinetsChannel);
+    bool status = mathPicker.initialize(serverUrl, clientsChannel);
 
     if (!status) {
-        std::cerr << "Failed to initialize subscriber.\n";
+        std::cerr << "Failed to initialize NATS service.\n";
         return 1;
     } /*else { sleepingFunction(); // commented for the sake of testing (next block of code). otherwise here should be called a function for keeping the process alive.
     }*/
@@ -26,7 +26,7 @@ int main() {
     // for testing purposes
     // testing should be done if we already have nats-service running up
     NatsPublisher publisher;
-    std::string someClient = "clients.someClient";
+    std::string someClient = "Clients.SomeClient";
     publisher.connect(serverUrl);
     publisher.publish(someClient, "Hello from NatsPublisher!");
 

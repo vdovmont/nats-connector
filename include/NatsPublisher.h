@@ -7,7 +7,7 @@
 class NatsPublisher : public INatsPublisher {
 public:
     NatsPublisher();
-    ~NatsPublisher();
+    ~NatsPublisher() override;
 
     bool connect(const std::string& serverUrl) override;
     bool publish(const std::string& subject, const std::string& message) override;

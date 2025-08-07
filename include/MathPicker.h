@@ -1,7 +1,6 @@
 #pragma once
 
-#include "NatsPublisher.h"
-#include "NatsSubscriber.h"
+#include "NatsManager.h"
 
 class MathPicker {
     public:
@@ -12,6 +11,5 @@ class MathPicker {
         void onMessageTrigger(const std::string& subject, const std::string& message);
 
     private:
-        NatsPublisher publisher_;
-        NatsSubscriber subscriber_;
+        NatsManager manager_;
 };

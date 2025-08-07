@@ -1,5 +1,4 @@
 #include "MathPicker.h"
-#include "NatsPublisher.h"
 #include <thread>
 #include <chrono>
 
@@ -25,10 +24,16 @@ int main() {
 
     // for testing purposes
     // testing should be done if we already have nats-service running up
-    NatsPublisher publisher;
+    NatsManager testingObject;
     std::string someClient = "Clients.SomeClient";
-    publisher.connect(serverUrl);
-    publisher.publish(someClient, "Hello from NatsPublisher!");
+    std::string someClientAnswers = "Answers.Clients.SomeClient";
+    testingObject.connect(serverUrl);
+    testingObject.subscribe(someClientAnswers, [](const std::string& subject, const std::string& message) {
+        std::cout << "Received message on subject " << subject << ": " << message << "\n";
+    });
+    testingObject.publish(someClient, "Hello from NatsPublisher!");
+
+    sleepingFunction();
 
     return 0;
 }

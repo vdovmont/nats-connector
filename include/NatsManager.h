@@ -1,16 +1,17 @@
 #pragma once
 
-#include "INatsSubscriber.h"
+#include "INatsManager.h"
 #include <nats/nats.h>
 #include <functional>
 #include <iostream>
 
-class NatsSubscriber : public INatsSubscriber {
+class NatsManager : public INatsManager {
 public:
-    NatsSubscriber();
-    ~NatsSubscriber() override;
+    NatsManager();
+    ~NatsManager() override;
 
     bool connect(const std::string& serverUrl) override;
+    bool publish(const std::string& subject, const std::string& message) override;
     bool subscribe(const std::string& subject, std::function<void(const std::string& subject, const std::string& message)> handler) override;
     void disconnect() override;
 

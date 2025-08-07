@@ -1,16 +1,12 @@
 #include "MathPicker.h"
 
 bool MathPicker::initialize(const std::string& serverUrl, const std::string& subject) {
-    bool status = publisher_.connect(serverUrl);
-    if (!status) {
-        return false;
-    }
-    status = subscriber_.connect(serverUrl);
+    bool status = manager_.connect(serverUrl);
     if (!status) {
         return false;
     }
 
-    status = subscriber_.subscribe(subject, [this](const std::string& msgSubject, const std::string& message) { this->onMessageTrigger(msgSubject, message); });
+    status = manager_.subscribe(subject, [this](const std::string& msgSubject, const std::string& message) { this->onMessageTrigger(msgSubject, message); });
     if (!status) {
         return false;
     }
@@ -22,9 +18,11 @@ void MathPicker::onMessageTrigger(const std::string& subject, const std::string&
     std::string responseSubject = "Answers.";
     responseSubject += subject; // so in theory it should be something like "Answers.Clients.SomeClient"
 
-    std::string responseMessage = "Your ticket is: someNumber.\n"; // Placeholder for actual response logic
-    if (!publisher_.publish(responseSubject, responseMessage)) {
-        std::cerr << "Failed to return response message.\n";
+    std::string responseMessage = "Your ticket is: someNumber, and message is:\n"; // Placeholder for actual response logic
+    responseMessage += message;
+    responseMessage += "\n";
+    if (!manager_.publish(responseSubject, responseMessage)) {
+        std::cerr << "Failed to return response message to subject " << responseSubject << "\n";
         return;
     }
 

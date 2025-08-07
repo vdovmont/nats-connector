@@ -17,8 +17,7 @@ find_package(cnats CONFIG REQUIRED)
 set(PROJECT_SOURCES
     src/main.cpp
     src/MathPicker.cpp
-    src/NatsPublisher.cpp
-    src/NatsSubscriber.cpp
+    src/NatsManager.cpp
 )
 
 add_executable(${PROJECT_NAME} ${PROJECT_SOURCES})

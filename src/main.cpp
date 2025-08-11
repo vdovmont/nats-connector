@@ -1,8 +1,9 @@
-#include "MathPicker.h"
-#include <thread>
 #include <chrono>
+#include <thread>
+#include "MathPicker.h"
 
-// For now as a stopgap, but this function should prevent process from exiting and maybe checking for NatsSubscriber health (connection) (?). In the future should be replaced.
+// For now as a stopgap, but this function should prevent process from exiting and maybe checking for NatsSubscriber health (connection) (?).
+// In the future should be replaced.
 void sleepingFunction() {
     while (true) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -10,8 +11,8 @@ void sleepingFunction() {
 }
 
 int main() {
-    std::string serverUrl = "nats://localhost:4222"; //example server URL
-    std::string clientsChannel = "Clients.*"; //example of common channel for clients
+    std::string serverUrl = "nats://localhost:4222";  //example server URL
+    std::string clientsChannel = "Clients.*";         //example of common channel for clients
     MathPicker mathPicker;
 
     bool status = mathPicker.initialize(serverUrl, clientsChannel);

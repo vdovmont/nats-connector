@@ -1,10 +1,10 @@
 #pragma once
 
-#include <string>
 #include <functional>
+#include <string>
 
 class INatsManager {
-public:
+   public:
     virtual ~INatsManager() = default;
 
     // Connect to the NATS server

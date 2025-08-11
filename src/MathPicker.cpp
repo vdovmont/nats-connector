@@ -16,9 +16,9 @@ bool MathPicker::initialize(const std::string& serverUrl, const std::string& sub
 
 void MathPicker::onMessageTrigger(const std::string& subject, const std::string& message) {
     std::string responseSubject = "Answers.";
-    responseSubject += subject; // so in theory it should be something like "Answers.Clients.SomeClient"
+    responseSubject += subject;  // so in theory it should be something like "Answers.Clients.SomeClient"
 
-    std::string responseMessage = "Your ticket is: someNumber, and message is:\n"; // Placeholder for actual response logic
+    std::string responseMessage = "Your ticket is: someNumber, and message is:\n";  // Placeholder for actual response logic
     responseMessage += message;
     responseMessage += "\n";
     if (!manager_.publish(responseSubject, responseMessage)) {
@@ -28,5 +28,5 @@ void MathPicker::onMessageTrigger(const std::string& subject, const std::string&
 
     // Here we can implement the logic to select the appropriate math functionality based on the message received.
     // Maybe it can be even new method - for future discussion.
-    std::cout << "Math selector functionality not implemented yet.\n"; // Placeholder for future functionality
+    std::cout << "Math selector functionality not implemented yet.\n";  // Placeholder for future functionality
 }

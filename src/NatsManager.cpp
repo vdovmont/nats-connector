@@ -1,6 +1,6 @@
 #include "NatsManager.h"
 
-NatsManager::NatsManager() : conn_(nullptr) {}
+NatsManager::NatsManager() : conn_(nullptr), sub_(nullptr), callback_([](const std::string& a, const std::string& b) {}) {}
 
 NatsManager::~NatsManager() {
     disconnect();
@@ -16,7 +16,7 @@ bool NatsManager::connect(const std::string& serverUrl) {
 }
 
 bool NatsManager::publish(const std::string& subject, const std::string& message) {
-    if (!conn_){
+    if (!conn_) {
         std::cerr << "Not connected to NATS server.\n";
         return false;
     }
@@ -30,7 +30,7 @@ bool NatsManager::publish(const std::string& subject, const std::string& message
 }
 
 bool NatsManager::subscribe(const std::string& subject, std::function<void(const std::string&, const std::string&)> handler) {
-    if (!conn_){
+    if (!conn_) {
         std::cerr << "Not connected to NATS server.\n";
         return false;
     }
@@ -59,7 +59,7 @@ void NatsManager::onMessage(natsConnection* nc, natsSubscription* sub, natsMsg* 
         std::string data(natsMsg_GetData(msg), natsMsg_GetDataLength(msg));
         self->callback_(subject, data);
     }
-    natsMsg_Destroy(msg); // This is default nats behavior - to destroy the message after processing.
+    natsMsg_Destroy(msg);  // This is default nats behavior - to destroy the message after processing.
 }
 
 void NatsManager::disconnect() {

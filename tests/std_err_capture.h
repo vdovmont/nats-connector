@@ -1,15 +1,16 @@
 #pragma once
 
 #include <gtest/gtest.h>
+
 #include <string>
 
 class StderrCapture {
-   public:
+  public:
     StderrCapture();
     ~StderrCapture();
 
-    const std::string& output() const;
+    const std::string& Output() const;
 
-   private:
+  private:
     std::string captured_output_;
 };

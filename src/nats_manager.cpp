@@ -1,13 +1,12 @@
-#include "NatsManager.h"
+#include "nats_manager.h"
 
-NatsManager::NatsManager() : conn_(nullptr), sub_(nullptr), callback_([](const std::string& a, const std::string& b) {}) {}
+NatsManager::NatsManager() :
+    conn_(nullptr), sub_(nullptr), callback_([](const std::string& a, const std::string& b) {}) {}
 
-NatsManager::~NatsManager() {
-    disconnect();
-}
+NatsManager::~NatsManager() { Disconnect(); }
 
-bool NatsManager::connect(const std::string& serverUrl) {
-    natsStatus status = natsConnection_ConnectTo(&conn_, serverUrl.c_str());
+bool NatsManager::Connect(const std::string& server_url) {
+    natsStatus status = natsConnection_ConnectTo(&conn_, server_url.c_str());
     if (status != NATS_OK) {
         std::cerr << "NATS connect failed: " << natsStatus_GetText(status) << "\n";
         return false;
@@ -15,7 +14,7 @@ bool NatsManager::connect(const std::string& serverUrl) {
     return true;
 }
 
-bool NatsManager::publish(const std::string& subject, const std::string& message) {
+bool NatsManager::Publish(const std::string& subject, const std::string& message) {
     if (!conn_) {
         std::cerr << "Not connected to NATS server.\n";
         return false;
@@ -29,7 +28,8 @@ bool NatsManager::publish(const std::string& subject, const std::string& message
     return true;
 }
 
-bool NatsManager::subscribe(const std::string& subject, std::function<void(const std::string&, const std::string&)> handler) {
+bool NatsManager::Subscribe(const std::string& subject,
+                            std::function<void(const std::string&, const std::string&)> handler) {
     if (!conn_) {
         std::cerr << "Not connected to NATS server.\n";
         return false;
@@ -37,7 +37,7 @@ bool NatsManager::subscribe(const std::string& subject, std::function<void(const
 
     callback_ = handler;
 
-    natsStatus status = natsConnection_Subscribe(&sub_, conn_, subject.c_str(), onMessage, this);
+    natsStatus status = natsConnection_Subscribe(&sub_, conn_, subject.c_str(), Callback, this);
     // We pass 'this' so that, inside the callback, we can get back the current object instance (NatsSubscriber*).
     // This gives us access to private member like callback_ or other methods.
     // for more information - google "bridging C callbacks with C++ member functions".
@@ -50,7 +50,7 @@ bool NatsManager::subscribe(const std::string& subject, std::function<void(const
     return true;
 }
 
-void NatsManager::onMessage(natsConnection* nc, natsSubscription* sub, natsMsg* msg, void* closure) {
+void NatsManager::Callback(natsConnection* nc, natsSubscription* sub, natsMsg* msg, void* closure) {
     // Retrieve the NatsSubscriber instance from the closure pointer.
     NatsManager* self = static_cast<NatsManager*>(closure);
     // If the instance and callback are valid, invoke the callback with the message data.
@@ -62,7 +62,7 @@ void NatsManager::onMessage(natsConnection* nc, natsSubscription* sub, natsMsg* 
     natsMsg_Destroy(msg);  // This is default nats behavior - to destroy the message after processing.
 }
 
-void NatsManager::disconnect() {
+void NatsManager::Disconnect() {
     if (conn_) {
         natsConnection_Destroy(conn_);
         conn_ = nullptr;

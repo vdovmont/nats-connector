@@ -36,8 +36,8 @@ endif()
 
 # Main application
 add_library(${PROJECT_LIBS}
-    src/MathPicker.cpp
-    src/NatsManager.cpp
+    src/math_picker.cpp
+    src/nats_manager.cpp
 )
 target_include_directories(${PROJECT_LIBS} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(${PROJECT_LIBS} PUBLIC cnats::nats)
@@ -54,9 +54,9 @@ if(ENABLE_TESTS)
     enable_testing()
 
     set(PROJECT_TESTS_SOURCES
-        tests/MathPickerTest.cpp
-        tests/NatsManagerTest.cpp
-        tests/StderrCapture.cpp
+        tests/math_picker_tests.cpp
+        tests/nats_manager_tests.cpp
+        tests/std_err_capture.cpp
     )
 
     add_executable(${PROJECT_TESTS} ${PROJECT_TESTS_SOURCES})

@@ -1,22 +1,21 @@
 #pragma once
 
-#include <nats/nats.h>
-
 #include <functional>
 #include <iostream>
 
-#include "i_nats_manager.h"
+#include "nats.h"
+#include "nlohmann/json.hpp"
 
-class NatsManager : public INatsManager {
+class NatsManager {
   public:
     NatsManager();
-    ~NatsManager() override;
+    ~NatsManager();
 
-    bool Connect(const std::string& serverUrl) override;
-    bool Publish(const std::string& subject, const std::string& message) override;
+    bool Connect(const std::string& serverUrl);
+    bool Publish(const std::string& subject, const nlohmann::json& message);
     bool Subscribe(const std::string& subject,
-                   std::function<void(const std::string& subject, const std::string& message)> handler) override;
-    void Disconnect() override;
+                   std::function<void(const std::string& subject, const nlohmann::json& message)> handler);
+    void Disconnect();
 
     // for testing purposes
     natsConnection* get_connection() const { return conn_; }
@@ -25,7 +24,7 @@ class NatsManager : public INatsManager {
   private:
     natsConnection* conn_;
     natsSubscription* sub_;
-    std::function<void(const std::string&, const std::string&)> callback_;
+    std::function<void(const std::string&, const nlohmann::json&)> callback_;
 
     static void Callback(natsConnection* nc, natsSubscription* sub, natsMsg* msg, void* closure);
 };

@@ -1,0 +1,1004 @@
+@startuml
+class "std::char_traits<char>" as C_0007500688229146332176
+class C_0007500688229146332176 {
+__
+}
+class "std::allocator<char>" as C_0000465838628272370621
+class C_0000465838628272370621 {
+__
+}
+class "std::string" as C_0005016775666417918015
+class C_0005016775666417918015 {
+__
+}
+class "std::function<void(std::string const& const&,std::string const& const&)>" as C_0003910792886706976751
+class C_0003910792886706976751 {
+__
+}
+abstract "INatsManager" as C_0007861928464408504359
+abstract C_0007861928464408504359 {
++~INatsManager() = default : void
+..
+{abstract} +Connect(const std::string & serverUrl) = 0 : bool
+{abstract} +Disconnect() = 0 : void
+{abstract} +Publish(const std::string & subject, const std::string & message) = 0 : bool
+{abstract} +Subscribe(const std::string & subject, std::function<void (const std::string &,const std::string &)> handler) = 0 : bool
+__
+}
+enum "natsConnStatus" as C_0001677708925510132609
+enum C_0001677708925510132609 {
+NATS_CONN_STATUS_DISCONNECTED
+NATS_CONN_STATUS_CONNECTING
+NATS_CONN_STATUS_CONNECTED
+NATS_CONN_STATUS_CLOSED
+NATS_CONN_STATUS_RECONNECTING
+NATS_CONN_STATUS_DRAINING_SUBS
+NATS_CONN_STATUS_DRAINING_PUBS
+}
+enum "natsStatus" as C_0016612968052003230647
+enum C_0016612968052003230647 {
+NATS_OK
+NATS_ERR
+NATS_PROTOCOL_ERROR
+NATS_IO_ERROR
+NATS_LINE_TOO_LONG
+NATS_CONNECTION_CLOSED
+NATS_NO_SERVER
+NATS_STALE_CONNECTION
+NATS_SECURE_CONNECTION_WANTED
+NATS_SECURE_CONNECTION_REQUIRED
+NATS_CONNECTION_DISCONNECTED
+NATS_CONNECTION_AUTH_FAILED
+NATS_NOT_PERMITTED
+NATS_NOT_FOUND
+NATS_ADDRESS_MISSING
+NATS_INVALID_SUBJECT
+NATS_INVALID_ARG
+NATS_INVALID_SUBSCRIPTION
+NATS_INVALID_TIMEOUT
+NATS_ILLEGAL_STATE
+NATS_SLOW_CONSUMER
+NATS_MAX_PAYLOAD
+NATS_MAX_DELIVERED_MSGS
+NATS_INSUFFICIENT_BUFFER
+NATS_NO_MEMORY
+NATS_SYS_ERROR
+NATS_TIMEOUT
+NATS_FAILED_TO_INITIALIZE
+NATS_NOT_INITIALIZED
+NATS_SSL_ERROR
+NATS_NO_SERVER_SUPPORT
+NATS_NOT_YET_CONNECTED
+NATS_DRAINING
+NATS_INVALID_QUEUE_NAME
+NATS_NO_RESPONDERS
+NATS_MISMATCH
+NATS_MISSED_HEARTBEAT
+NATS_LIMIT_REACHED
+}
+enum "jsErrCode" as C_0007827957810343367452
+enum C_0007827957810343367452 {
+JSAccountResourcesExceededErr
+JSBadRequestErr
+JSClusterIncompleteErr
+JSClusterNoPeersErr
+JSClusterNotActiveErr
+JSClusterNotAssignedErr
+JSClusterNotAvailErr
+JSClusterNotLeaderErr
+JSClusterRequiredErr
+JSClusterTagsErr
+JSConsumerCreateErr
+JSConsumerNameExistErr
+JSConsumerNotFoundErr
+JSSnapshotDeliverSubjectInvalidErr
+JSConsumerDurableNameNotInSubjectErr
+JSConsumerDurableNameNotMatchSubjectErr
+JSConsumerDurableNameNotSetErr
+JSConsumerEphemeralWithDurableInSubjectErr
+JSConsumerEphemeralWithDurableNameErr
+JSStreamExternalApiOverlapErr
+JSStreamExternalDelPrefixOverlapsErr
+JSInsufficientResourcesErr
+JSStreamInvalidExternalDeliverySubjErr
+JSInvalidJSONErr
+JSMaximumConsumersLimitErr
+JSMaximumStreamsLimitErr
+JSMemoryResourcesExceededErr
+JSMirrorConsumerSetupFailedErr
+JSMirrorMaxMessageSizeTooBigErr
+JSMirrorWithSourcesErr
+JSMirrorWithStartSeqAndTimeErr
+JSMirrorWithSubjectFiltersErr
+JSMirrorWithSubjectsErr
+JSNoAccountErr
+JSClusterUnSupportFeatureErr
+JSNoMessageFoundErr
+JSNotEmptyRequestErr
+JSNotEnabledForAccountErr
+JSClusterPeerNotMemberErr
+JSRaftGeneralErr
+JSRestoreSubscribeFailedErr
+JSSequenceNotFoundErr
+JSClusterServerNotMemberErr
+JSSourceConsumerSetupFailedErr
+JSSourceMaxMessageSizeTooBigErr
+JSStorageResourcesExceededErr
+JSStreamAssignmentErr
+JSStreamCreateErr
+JSStreamDeleteErr
+JSStreamGeneralError
+JSStreamInvalidConfig
+JSStreamLimitsErr
+JSStreamMessageExceedsMaximumErr
+JSStreamMirrorNotUpdatableErr
+JSStreamMismatchErr
+JSStreamMsgDeleteFailed
+JSStreamNameExistErr
+JSStreamNotFoundErr
+JSStreamNotMatchErr
+JSStreamReplicasNotUpdatableErr
+JSStreamRestoreErr
+JSStreamSequenceNotMatchErr
+JSStreamSnapshotErr
+JSStreamSubjectOverlapErr
+JSStreamTemplateCreateErr
+JSStreamTemplateDeleteErr
+JSStreamTemplateNotFoundErr
+JSStreamUpdateErr
+JSStreamWrongLastMsgIDErr
+JSStreamWrongLastSequenceErr
+JSTempStorageFailedErr
+JSTemplateNameNotMatchSubjectErr
+JSStreamReplicasNotSupportedErr
+JSPeerRemapErr
+JSNotEnabledErr
+JSStreamStoreFailedErr
+JSConsumerConfigRequiredErr
+JSConsumerDeliverToWildcardsErr
+JSConsumerPushMaxWaitingErr
+JSConsumerDeliverCycleErr
+JSConsumerMaxPendingAckPolicyRequiredErr
+JSConsumerSmallHeartbeatErr
+JSConsumerPullRequiresAckErr
+JSConsumerPullNotDurableErr
+JSConsumerPullWithRateLimitErr
+JSConsumerMaxWaitingNegativeErr
+JSConsumerHBRequiresPushErr
+JSConsumerFCRequiresPushErr
+JSConsumerDirectRequiresPushErr
+JSConsumerDirectRequiresEphemeralErr
+JSConsumerOnMappedErr
+JSConsumerFilterNotSubsetErr
+JSConsumerInvalidPolicyErr
+JSConsumerInvalidSamplingErr
+JSStreamInvalidErr
+JSConsumerWQRequiresExplicitAckErr
+JSConsumerWQMultipleUnfilteredErr
+JSConsumerWQConsumerNotUniqueErr
+JSConsumerWQConsumerNotDeliverAllErr
+JSConsumerNameTooLongErr
+JSConsumerBadDurableNameErr
+JSConsumerStoreFailedErr
+JSConsumerExistingActiveErr
+JSConsumerReplacementWithDifferentNameErr
+JSConsumerDescriptionTooLongErr
+JSConsumerWithFlowControlNeedsHeartbeatsErr
+JSStreamSealedErr
+JSStreamPurgeFailedErr
+JSStreamRollupFailedErr
+JSConsumerInvalidDeliverSubjectErr
+JSStreamMaxBytesRequiredErr
+JSConsumerMaxRequestBatchNegativeErr
+JSConsumerMaxRequestExpiresToSmallErr
+JSConsumerMaxDeliverBackoffErr
+JSStreamInfoMaxSubjectsErr
+JSStreamOfflineErr
+JSConsumerOfflineErr
+JSNoLimitsErr
+JSConsumerMaxPendingAckExcessErr
+JSStreamMaxStreamBytesExceededErr
+JSStreamMoveAndScaleErr
+JSStreamMoveInProgressErr
+JSConsumerMaxRequestBatchExceededErr
+JSConsumerReplicasExceedsStreamErr
+JSConsumerNameContainsPathSeparatorsErr
+JSStreamNameContainsPathSeparatorsErr
+JSStreamMoveNotInProgressErr
+JSStreamNameExistRestoreFailedErr
+JSConsumerCreateFilterSubjectMismatchErr
+JSConsumerCreateDurableAndNameMismatchErr
+JSReplicasCountCannotBeNegativeErr
+}
+class "__natsClientConfig" as C_0005735254643562447922
+class C_0005735254643562447922 {
+__
++DefaultRepliesToThreadPool : bool
++DefaultToThreadPool : bool
++DefaultWriteDeadline : int64_t
++LockSpinCount : int64_t
++ReplyThreadPoolMax : int
++ThreadPoolMax : int
++UseSeparatePoolForReplies : bool
+}
+class "natsMsgList" as C_0004411652629591295686
+class C_0004411652629591295686 {
+__
++Count : int
++Msgs : natsMsg **
+}
+class "natsMetadata" as C_0010598822278401518968
+class C_0010598822278401518968 {
+__
++Count : int
++List : const char **
+}
+class "jsPubOptions" as C_0005615372128946053313
+class C_0005615372128946053313 {
+__
++ExpectLastMsgId : const char *
++ExpectLastSeq : uint64_t
++ExpectLastSubjectSeq : uint64_t
++ExpectNoMessage : bool
++ExpectStream : const char *
++MaxWait : int64_t
++MsgId : const char *
+}
+enum "jsRetentionPolicy" as C_0015666704189781028250
+enum C_0015666704189781028250 {
+js_LimitsPolicy
+js_InterestPolicy
+js_WorkQueuePolicy
+}
+enum "jsDiscardPolicy" as C_0015831762995765330214
+enum C_0015831762995765330214 {
+js_DiscardOld
+js_DiscardNew
+}
+enum "jsStorageType" as C_0004811998595824971223
+enum C_0004811998595824971223 {
+js_FileStorage
+js_MemoryStorage
+}
+enum "jsStorageCompression" as C_0007274047833476486847
+enum C_0007274047833476486847 {
+js_StorageCompressionNone
+js_StorageCompressionS2
+}
+enum "jsDeliverPolicy" as C_0011803738462666363841
+enum C_0011803738462666363841 {
+js_DeliverAll
+js_DeliverLast
+js_DeliverNew
+js_DeliverByStartSequence
+js_DeliverByStartTime
+js_DeliverLastPerSubject
+}
+enum "jsAckPolicy" as C_0013966611168975509593
+enum C_0013966611168975509593 {
+js_AckExplicit
+js_AckNone
+js_AckAll
+}
+enum "jsReplayPolicy" as C_0015058857379047039935
+enum C_0015058857379047039935 {
+js_ReplayInstant
+js_ReplayOriginal
+}
+class "jsPlacement" as C_0005324589787382080477
+class C_0005324589787382080477 {
+__
++Cluster : const char *
++Tags : const char **
++TagsLen : int
+}
+class "jsExternalStream" as C_0009684795569058211065
+class C_0009684795569058211065 {
+__
++APIPrefix : const char *
++DeliverPrefix : const char *
+}
+class "jsStreamSource" as C_0017976081280626487023
+class C_0017976081280626487023 {
+__
++Domain : const char *
++External : jsExternalStream *
++FilterSubject : const char *
++Name : const char *
++OptStartSeq : uint64_t
++OptStartTime : int64_t
+}
+class "jsRePublish" as C_0011398580013907715774
+class C_0011398580013907715774 {
+__
++Destination : const char *
++HeadersOnly : bool
++Source : const char *
+}
+class "jsSubjectTransformConfig" as C_0003283758962838991312
+class C_0003283758962838991312 {
+__
++Destination : const char *
++Source : const char *
+}
+class "jsStreamConsumerLimits" as C_0014693804193453520766
+class C_0014693804193453520766 {
+__
++InactiveThreshold : int64_t
++MaxAckPending : int
+}
+class "jsStreamConfig" as C_0005192212966601974332
+class C_0005192212966601974332 {
+__
++AllowDirect : bool
++AllowRollup : bool
++Compression : jsStorageCompression
++ConsumerLimits : jsStreamConsumerLimits
++DenyDelete : bool
++DenyPurge : bool
++Description : const char *
++Discard : jsDiscardPolicy
++DiscardNewPerSubject : bool
++Duplicates : int64_t
++FirstSeq : uint64_t
++MaxAge : int64_t
++MaxBytes : int64_t
++MaxConsumers : int64_t
++MaxMsgSize : int32_t
++MaxMsgs : int64_t
++MaxMsgsPerSubject : int64_t
++Metadata : natsMetadata
++Mirror : jsStreamSource *
++MirrorDirect : bool
++Name : const char *
++NoAck : bool
++Placement : jsPlacement *
++RePublish : jsRePublish *
++Replicas : int64_t
++Retention : jsRetentionPolicy
++Sealed : bool
++Sources : jsStreamSource **
++SourcesLen : int
++Storage : jsStorageType
++SubjectTransform : jsSubjectTransformConfig
++Subjects : const char **
++SubjectsLen : int
++Template : const char *
+}
+class "jsLostStreamData" as C_0006646207802325516528
+class C_0006646207802325516528 {
+__
++Bytes : uint64_t
++Msgs : uint64_t *
++MsgsLen : int
+}
+class "jsStreamStateSubject" as C_0004171477753139542101
+class C_0004171477753139542101 {
+__
++Msgs : uint64_t
++Subject : const char *
+}
+class "jsStreamStateSubjects" as C_0012844516874469370002
+class C_0012844516874469370002 {
+__
++Count : int
++List : jsStreamStateSubject *
+}
+class "jsStreamState" as C_0008098026720822392119
+class C_0008098026720822392119 {
+__
++Bytes : uint64_t
++Consumers : int64_t
++Deleted : uint64_t *
++DeletedLen : int
++FirstSeq : uint64_t
++FirstTime : int64_t
++LastSeq : uint64_t
++LastTime : int64_t
++Lost : jsLostStreamData *
++Msgs : uint64_t
++NumDeleted : uint64_t
++NumSubjects : int64_t
++Subjects : jsStreamStateSubjects *
+}
+class "jsPeerInfo" as C_0002472193321128366994
+class C_0002472193321128366994 {
+__
++Active : int64_t
++Current : bool
++Lag : uint64_t
++Name : char *
++Offline : bool
+}
+class "jsClusterInfo" as C_0009180259215057058288
+class C_0009180259215057058288 {
+__
++Leader : char *
++Name : char *
++Replicas : jsPeerInfo **
++ReplicasLen : int
+}
+class "jsStreamSourceInfo" as C_0009155345321317790811
+class C_0009155345321317790811 {
+__
++Active : int64_t
++External : jsExternalStream *
++FilterSubject : const char *
++Lag : uint64_t
++Name : char *
++SubjectTransforms : jsSubjectTransformConfig *
++SubjectTransformsLen : int
+}
+class "jsStreamAlternate" as C_0014463627736768282708
+class C_0014463627736768282708 {
+__
++Cluster : const char *
++Domain : const char *
++Name : const char *
+}
+class "jsStreamInfo" as C_0015487260287442996586
+class C_0015487260287442996586 {
+__
++Alternates : jsStreamAlternate **
++AlternatesLen : int
++Cluster : jsClusterInfo *
++Config : jsStreamConfig *
++Created : int64_t
++Mirror : jsStreamSourceInfo *
++Sources : jsStreamSourceInfo **
++SourcesLen : int
++State : jsStreamState
+}
+class "jsStreamInfoList" as C_0001433826602051233830
+class C_0001433826602051233830 {
+__
++Count : int
++List : jsStreamInfo **
+}
+class "jsStreamNamesList" as C_0014863387444321756522
+class C_0014863387444321756522 {
+__
++Count : int
++List : char **
+}
+class "jsConsumerConfig" as C_0016007692384277668732
+class C_0016007692384277668732 {
+__
++AckPolicy : jsAckPolicy
++AckWait : int64_t
++BackOff : int64_t *
++BackOffLen : int
++DeliverGroup : const char *
++DeliverPolicy : jsDeliverPolicy
++DeliverSubject : const char *
++Description : const char *
++Durable : const char *
++FilterSubject : const char *
++FilterSubjects : const char **
++FilterSubjectsLen : int
++FlowControl : bool
++HeadersOnly : bool
++Heartbeat : int64_t
++InactiveThreshold : int64_t
++MaxAckPending : int64_t
++MaxDeliver : int64_t
++MaxRequestBatch : int64_t
++MaxRequestExpires : int64_t
++MaxRequestMaxBytes : int64_t
++MaxWaiting : int64_t
++MemoryStorage : bool
++Metadata : natsMetadata
++Name : const char *
++OptStartSeq : uint64_t
++OptStartTime : int64_t
++PauseUntil : int64_t
++RateLimit : uint64_t
++ReplayPolicy : jsReplayPolicy
++Replicas : int64_t
++SampleFrequency : const char *
+}
+class "jsConsumerSequenceMismatch" as C_0012074395656433624687
+class C_0012074395656433624687 {
+__
++ConsumerClient : uint64_t
++ConsumerServer : uint64_t
++Stream : uint64_t
+}
+class "jsSubOptions" as C_0017169975009823784326
+class C_0017169975009823784326 {
+__
++Config : jsConsumerConfig
++Consumer : const char *
++ManualAck : bool
++Ordered : bool
++Queue : const char *
++Stream : const char *
+}
+class "jsSequencePair" as C_0009401399524083640291
+class C_0009401399524083640291 {
+__
++Consumer : uint64_t
++Stream : uint64_t
+}
+class "jsSequenceInfo" as C_0005300203231726853975
+class C_0005300203231726853975 {
+__
++Consumer : uint64_t
++Last : int64_t
++Stream : uint64_t
+}
+class "jsConsumerInfo" as C_0013728808190870661546
+class C_0013728808190870661546 {
+__
++AckFloor : jsSequenceInfo
++Cluster : jsClusterInfo *
++Config : jsConsumerConfig *
++Created : int64_t
++Delivered : jsSequenceInfo
++Name : char *
++NumAckPending : int64_t
++NumPending : uint64_t
++NumRedelivered : int64_t
++NumWaiting : int64_t
++PauseRemaining : int64_t
++Paused : bool
++PushBound : bool
++Stream : char *
+}
+class "jsConsumerInfoList" as C_0010792165469598002534
+class C_0010792165469598002534 {
+__
++Count : int
++List : jsConsumerInfo **
+}
+class "jsConsumerNamesList" as C_0004307561642705540010
+class C_0004307561642705540010 {
+__
++Count : int
++List : char **
+}
+class "jsConsumerPauseResponse" as C_0008743201545143906867
+class C_0008743201545143906867 {
+__
++PauseRemaining : int64_t
++PauseUntil : int64_t
++Paused : bool
+}
+class "jsAPIStats" as C_0016814958967395414485
+class C_0016814958967395414485 {
+__
++Errors : uint64_t
++Total : uint64_t
+}
+class "jsAccountLimits" as C_0004095410371582702309
+class C_0004095410371582702309 {
+__
++MaxAckPending : int64_t
++MaxBytesRequired : bool
++MaxConsumers : int64_t
++MaxMemory : int64_t
++MaxStore : int64_t
++MaxStreams : int64_t
++MemoryMaxStreamBytes : int64_t
++StoreMaxStreamBytes : int64_t
+}
+class "jsTier" as C_0004056860237422288898
+class C_0004056860237422288898 {
+__
++Consumers : int64_t
++Limits : jsAccountLimits
++Memory : uint64_t
++Name : const char *
++Store : uint64_t
++Streams : int64_t
+}
+class "jsAccountInfo" as C_0008861293374457200805
+class C_0008861293374457200805 {
+__
++API : jsAPIStats
++Consumers : int64_t
++Domain : char *
++Limits : jsAccountLimits
++Memory : uint64_t
++Store : uint64_t
++Streams : int64_t
++Tiers : jsTier **
++TiersLen : int
+}
+class "jsMsgMetaData" as C_0005925647050579299394
+class C_0005925647050579299394 {
+__
++Consumer : char *
++Domain : char *
++NumDelivered : uint64_t
++NumPending : uint64_t
++Sequence : jsSequencePair
++Stream : char *
++Timestamp : int64_t
+}
+class "jsPubAck" as C_0001129543631128360974
+class C_0001129543631128360974 {
+__
++Domain : char *
++Duplicate : bool
++Sequence : uint64_t
++Stream : char *
+}
+class "jsPubAckErr" as C_0015822750277386580945
+class C_0015822750277386580945 {
+__
++Err : natsStatus
++ErrCode : jsErrCode
++ErrText : const char *
++Msg : natsMsg *
+}
+class "jsDirectGetMsgOptions" as C_0014281076431687445212
+class C_0014281076431687445212 {
+__
++LastBySubject : const char *
++NextBySubject : const char *
++Sequence : uint64_t
+}
+class "jsFetchRequest" as C_0005219331187733884739
+class C_0005219331187733884739 {
+__
++Batch : int
++Expires : int64_t
++Heartbeat : int64_t
++MaxBytes : int64_t
++NoWait : bool
+}
+class "jsOptionsPullSubscribeAsync" as C_0007654922313521328527
+class C_0007654922313521328527 {
+__
++CompleteHandler : jsFetchCompleteHandler
++CompleteHandlerClosure : void *
++FetchSize : int
++Heartbeat : int64_t
++KeepAhead : int
++MaxBytes : int64_t
++MaxMessages : int
++NextHandler : jsFetchNextHandler
++NextHandlerClosure : void *
++NoWait : bool
++Timeout : int64_t
+}
+class "jsOptionsPublishAsync" as C_0003295897579091553097
+class C_0003295897579091553097 {
+__
++AckHandler : jsPubAckHandler
++AckHandlerClosure : void *
++ErrHandler : jsPubAckErrHandler
++ErrHandlerClosure : void *
++MaxPending : int64_t
++StallWait : int64_t
+}
+class "jsOptionsStreamPurge" as C_0008617627152803961195
+class C_0008617627152803961195 {
+__
++Keep : uint64_t
++Sequence : uint64_t
++Subject : const char *
+}
+class "jsOptionsStreamInfo" as C_0009621724666573771264
+class C_0009621724666573771264 {
+__
++DeletedDetails : bool
++SubjectsFilter : const char *
+}
+class "jsOptionsStream" as C_0001861533479109766300
+class C_0001861533479109766300 {
+__
++Info : jsOptionsStreamInfo
++Purge : jsOptionsStreamPurge
+}
+class "jsOptions" as C_0013121534464278313316
+class C_0013121534464278313316 {
+__
++Domain : const char *
++Prefix : const char *
++PublishAsync : jsOptionsPublishAsync
++PullSubscribeAsync : jsOptionsPullSubscribeAsync
++Stream : jsOptionsStream
++Wait : int64_t
+}
+enum "kvOperation" as C_0006232770232384717485
+enum C_0006232770232384717485 {
+kvOp_Unknown
+kvOp_Put
+kvOp_Delete
+kvOp_Purge
+}
+class "kvConfig" as C_0014110547439481527058
+class C_0014110547439481527058 {
+__
++Bucket : const char *
++Description : const char *
++History : uint8_t
++MaxBytes : int64_t
++MaxValueSize : int32_t
++Mirror : jsStreamSource *
++RePublish : jsRePublish *
++Replicas : int
++Sources : jsStreamSource **
++SourcesLen : int
++StorageType : jsStorageType
++TTL : int64_t
+}
+class "kvWatchOptions" as C_0006465055639192163795
+class C_0006465055639192163795 {
+__
++IgnoreDeletes : bool
++IncludeHistory : bool
++MetaOnly : bool
++Timeout : int64_t
++UpdatesOnly : bool
+}
+class "kvPurgeOptions" as C_0017262994637313510023
+class C_0017262994637313510023 {
+__
++DeleteMarkersOlderThan : int64_t
++Timeout : int64_t
+}
+class "kvEntryList" as C_0017410350943069781760
+class C_0017410350943069781760 {
+__
++Count : int
++Entries : kvEntry **
+}
+class "kvKeysList" as C_0004298222371368365384
+class C_0004298222371368365384 {
+__
++Count : int
++Keys : char **
+}
+class "micro_endpoint_config_s" as C_0016760217538948441850
+class C_0016760217538948441850 {
+__
++Handler : microRequestHandler
++Metadata : natsMetadata
++Name : const char *
++NoQueueGroup : bool
++QueueGroup : const char *
++State : void *
++Subject : const char *
+}
+class "micro_endpoint_info_s" as C_0018084426942104017992
+class C_0018084426942104017992 {
+__
++Metadata : natsMetadata
++Name : const char *
++QueueGroup : const char *
++Subject : const char *
+}
+class "micro_endpoint_stats_s" as C_0017705163733542809327
+class C_0017705163733542809327 {
+__
++AverageProcessingTimeNanoseconds : int64_t
++LastErrorString : char[2048]
++Name : const char *
++NumErrors : int64_t
++NumRequests : int64_t
++ProcessingTimeNanoseconds : int64_t
++ProcessingTimeSeconds : int64_t
++QueueGroup : const char *
++Subject : const char *
+}
+class "micro_group_config_s" as C_0000556827399487355728
+class C_0000556827399487355728 {
+__
++NoQueueGroup : bool
++Prefix : const char *
++QueueGroup : const char *
+}
+class "micro_service_config_s" as C_0014985995065865048304
+class C_0014985995065865048304 {
+__
++Description : const char *
++DoneHandler : microDoneHandler
++Endpoint : microEndpointConfig *
++ErrHandler : microErrorHandler
++Metadata : natsMetadata
++Name : const char *
++NoQueueGroup : bool
++QueueGroup : const char *
++State : void *
++StatsHandler : microRequestHandler
++Version : const char *
+}
+class "micro_service_info_s" as C_0006369667116954202974
+class C_0006369667116954202974 {
+__
++Description : const char *
++Endpoints : microEndpointInfo *
++EndpointsLen : int
++Id : const char *
++Metadata : natsMetadata
++Name : const char *
++Type : const char *
++Version : const char *
+}
+class "micro_service_stats_s" as C_0006217343061231563829
+class C_0006217343061231563829 {
+__
++Endpoints : microEndpointStats *
++EndpointsLen : int
++Id : const char *
++Name : const char *
++Started : int64_t
++Type : const char *
++Version : const char *
+}
+class "NatsManager" as C_0003544655086359738308
+class C_0003544655086359738308 {
++NatsManager() : void
++~NatsManager() : void
+..
+{static} -Callback(natsConnection * nc, natsSubscription * sub, natsMsg * msg, void * closure) : void
++Connect(const std::string & serverUrl) : bool
++Disconnect() : void
++Publish(const std::string & subject, const std::string & message) : bool
++Subscribe(const std::string & subject, std::function<void (const std::string &,const std::string &)> handler) : bool
++get_connection() const : natsConnection *
++get_subscription() const : natsSubscription *
+__
+-callback_ : std::function<void (const std::string &,const std::string &)>
+-conn_ : natsConnection *
+-sub_ : natsSubscription *
+}
+class "MathPicker" as C_0002366831058851918229
+class C_0002366831058851918229 {
++MathPicker() = default : void
++~MathPicker() = default : void
+..
++Initialize(const std::string & serverUrl, const std::string & subject) : bool
++OnMessageTrigger(const std::string & subject, const std::string & message) : void
+__
+-manager_ : NatsManager
+}
+class "__kvEntry" as C_0000376418826699050690
+class C_0000376418826699050690 {
+__
+}
+class "micro_endpoint_s" as C_0000510924306131280623
+class C_0000510924306131280623 {
+__
+}
+class "micro_service_s" as C_0000710879317068469385
+class C_0000710879317068469385 {
+__
+}
+class "__kvStore" as C_0000737156043556710187
+class C_0000737156043556710187 {
+__
+}
+class "micro_group_s" as C_0002294294693004734889
+class C_0002294294693004734889 {
+__
+}
+class "micro_error_s" as C_0005571718335060104452
+class C_0005571718335060104452 {
+__
+}
+class "__jsCtx" as C_0006541212729188812997
+class C_0006541212729188812997 {
+__
+}
+class "__kvWatcher" as C_0009058182644064627530
+class C_0009058182644064627530 {
+__
+}
+class "micro_request_s" as C_0009433991040314666391
+class C_0009433991040314666391 {
+__
+}
+class "__natsStatistics" as C_0012351386227151242424
+class C_0012351386227151242424 {
+__
+}
+class "__natsMsg" as C_0012734849832314774836
+class C_0012734849832314774836 {
+__
+}
+class "__kvStatus" as C_0014806375185016876660
+class C_0014806375185016876660 {
+__
+}
+class "__natsConnection" as C_0015260380920672796051
+class C_0015260380920672796051 {
+__
+}
+class "__natsSubscription" as C_0015691670428320493990
+class C_0015691670428320493990 {
+__
+}
+class "__natsOptions" as C_0016912690061914079479
+class C_0016912690061914079479 {
+__
+}
+class "micro_client_s" as C_0018104874941296010845
+class C_0018104874941296010845 {
+__
+}
+class "__for_forward_compatibility_only" as C_0018311092686304919870
+class C_0018311092686304919870 {
+__
+}
+C_0005016775666417918015 ..> C_0007500688229146332176
+C_0005016775666417918015 ..> C_0000465838628272370621
+C_0003910792886706976751 ..> C_0005016775666417918015
+C_0007861928464408504359 ..> C_0005016775666417918015
+C_0007861928464408504359 ..> C_0003910792886706976751
+C_0004411652629591295686 --> C_0012734849832314774836 : +Msgs
+C_0017976081280626487023 --> C_0009684795569058211065 : +External
+C_0005192212966601974332 o-- C_0015666704189781028250 : +Retention
+C_0005192212966601974332 o-- C_0015831762995765330214 : +Discard
+C_0005192212966601974332 o-- C_0004811998595824971223 : +Storage
+C_0005192212966601974332 --> C_0005324589787382080477 : +Placement
+C_0005192212966601974332 --> C_0017976081280626487023 : +Mirror
+C_0005192212966601974332 --> C_0017976081280626487023 : +Sources
+C_0005192212966601974332 --> C_0011398580013907715774 : +RePublish
+C_0005192212966601974332 o-- C_0010598822278401518968 : +Metadata
+C_0005192212966601974332 o-- C_0007274047833476486847 : +Compression
+C_0005192212966601974332 o-- C_0003283758962838991312 : +SubjectTransform
+C_0005192212966601974332 o-- C_0014693804193453520766 : +ConsumerLimits
+C_0012844516874469370002 --> C_0004171477753139542101 : +List
+C_0008098026720822392119 --> C_0012844516874469370002 : +Subjects
+C_0008098026720822392119 --> C_0006646207802325516528 : +Lost
+C_0009180259215057058288 --> C_0002472193321128366994 : +Replicas
+C_0009155345321317790811 --> C_0009684795569058211065 : +External
+C_0009155345321317790811 --> C_0003283758962838991312 : +SubjectTransforms
+C_0015487260287442996586 --> C_0005192212966601974332 : +Config
+C_0015487260287442996586 o-- C_0008098026720822392119 : +State
+C_0015487260287442996586 --> C_0009180259215057058288 : +Cluster
+C_0015487260287442996586 --> C_0009155345321317790811 : +Mirror
+C_0015487260287442996586 --> C_0009155345321317790811 : +Sources
+C_0015487260287442996586 --> C_0014463627736768282708 : +Alternates
+C_0001433826602051233830 --> C_0015487260287442996586 : +List
+C_0016007692384277668732 o-- C_0011803738462666363841 : +DeliverPolicy
+C_0016007692384277668732 o-- C_0013966611168975509593 : +AckPolicy
+C_0016007692384277668732 o-- C_0015058857379047039935 : +ReplayPolicy
+C_0016007692384277668732 o-- C_0010598822278401518968 : +Metadata
+C_0017169975009823784326 o-- C_0016007692384277668732 : +Config
+C_0013728808190870661546 --> C_0016007692384277668732 : +Config
+C_0013728808190870661546 o-- C_0005300203231726853975 : +Delivered
+C_0013728808190870661546 o-- C_0005300203231726853975 : +AckFloor
+C_0013728808190870661546 --> C_0009180259215057058288 : +Cluster
+C_0010792165469598002534 --> C_0013728808190870661546 : +List
+C_0004056860237422288898 o-- C_0004095410371582702309 : +Limits
+C_0008861293374457200805 o-- C_0016814958967395414485 : +API
+C_0008861293374457200805 o-- C_0004095410371582702309 : +Limits
+C_0008861293374457200805 --> C_0004056860237422288898 : +Tiers
+C_0005925647050579299394 o-- C_0009401399524083640291 : +Sequence
+C_0015822750277386580945 --> C_0012734849832314774836 : +Msg
+C_0015822750277386580945 o-- C_0016612968052003230647 : +Err
+C_0015822750277386580945 o-- C_0007827957810343367452 : +ErrCode
+C_0001861533479109766300 o-- C_0008617627152803961195 : +Purge
+C_0001861533479109766300 o-- C_0009621724666573771264 : +Info
+C_0013121534464278313316 o-- C_0003295897579091553097 : +PublishAsync
+C_0013121534464278313316 o-- C_0007654922313521328527 : +PullSubscribeAsync
+C_0013121534464278313316 o-- C_0001861533479109766300 : +Stream
+C_0014110547439481527058 o-- C_0004811998595824971223 : +StorageType
+C_0014110547439481527058 --> C_0011398580013907715774 : +RePublish
+C_0014110547439481527058 --> C_0017976081280626487023 : +Mirror
+C_0014110547439481527058 --> C_0017976081280626487023 : +Sources
+C_0017410350943069781760 --> C_0000376418826699050690 : +Entries
+C_0016760217538948441850 o-- C_0010598822278401518968 : +Metadata
+C_0018084426942104017992 o-- C_0010598822278401518968 : +Metadata
+C_0014985995065865048304 o-- C_0010598822278401518968 : +Metadata
+C_0014985995065865048304 --> C_0016760217538948441850 : +Endpoint
+C_0006369667116954202974 o-- C_0010598822278401518968 : +Metadata
+C_0006369667116954202974 --> C_0018084426942104017992 : +Endpoints
+C_0006217343061231563829 --> C_0017705163733542809327 : +Endpoints
+C_0003544655086359738308 ..> C_0005016775666417918015
+C_0003544655086359738308 ..> C_0012734849832314774836
+C_0003544655086359738308 --> C_0015260380920672796051 : -conn_
+C_0003544655086359738308 --> C_0015691670428320493990 : -sub_
+C_0003544655086359738308 o-- C_0003910792886706976751 : -callback_
+C_0007861928464408504359 <|-- C_0003544655086359738308
+C_0002366831058851918229 ..> C_0005016775666417918015
+C_0002366831058851918229 o-- C_0003544655086359738308 : -manager_
+
+'Generated with clang-uml, version 0.6.2
+'LLVM version clang version 20.1.7 (https://github.com/llvm/llvm-project.git 6146a88f60492b520a36f8f8f3231e15f3cc6082)
+@enduml

@@ -14,13 +14,14 @@ bool NatsManager::Connect(const std::string& server_url) {
     return true;
 }
 
-bool NatsManager::Publish(const std::string& subject, const std::string& message) {
+bool NatsManager::Publish(const std::string& subject, const nlohmann::json& message) {
     if (!conn_) {
         std::cerr << "Not connected to NATS server.\n";
         return false;
     }
 
-    natsStatus status = natsConnection_PublishString(conn_, subject.c_str(), message.c_str());
+    std::string msg_str = message.dump();
+    natsStatus status = natsConnection_Publish(conn_, subject.c_str(), msg_str.c_str(), msg_str.size());
     if (status != NATS_OK) {
         std::cerr << "Publish failed: " << natsStatus_GetText(status) << "\n";
         return false;
@@ -29,7 +30,7 @@ bool NatsManager::Publish(const std::string& subject, const std::string& message
 }
 
 bool NatsManager::Subscribe(const std::string& subject,
-                            std::function<void(const std::string&, const std::string&)> handler) {
+                            std::function<void(const std::string&, const nlohmann::json&)> handler) {
     if (!conn_) {
         std::cerr << "Not connected to NATS server.\n";
         return false;

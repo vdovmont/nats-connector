@@ -1,7 +1,6 @@
 #include "nats_manager.h"
 
-NatsManager::NatsManager() :
-    conn_(nullptr), sub_(nullptr), callback_([](const std::string& a, const std::string& b) {}) {}
+NatsManager::NatsManager() : conn_(nullptr) {}
 
 NatsManager::~NatsManager() { Disconnect(); }
 
@@ -36,9 +35,8 @@ bool NatsManager::Subscribe(const std::string& subject,
         return false;
     }
 
-    callback_ = handler;
-
-    natsStatus status = natsConnection_Subscribe(&sub_, conn_, subject.c_str(), Callback, this);
+    natsSubscription* sub = nullptr;
+    natsStatus status = natsConnection_Subscribe(&sub, conn_, subject.c_str(), Callback, this);
     // We pass 'this' so that, inside the callback, we can get back the current object instance (NatsSubscriber*).
     // This gives us access to private member like callback_ or other methods.
     // for more information - google "bridging C callbacks with C++ member functions".
@@ -48,19 +46,29 @@ bool NatsManager::Subscribe(const std::string& subject,
         return false;
     }
 
+    callbacks_[sub] = handler;
     return true;
 }
 
 void NatsManager::Callback(natsConnection* nc, natsSubscription* sub, natsMsg* msg, void* closure) {
-    // Retrieve the NatsSubscriber instance from the closure pointer.
+    MsgGuard guard{msg};  // will auto-destroy msg at scope exit
     NatsManager* self = static_cast<NatsManager*>(closure);
-    // If the instance and callback are valid, invoke the callback with the message data.
-    if (self && self->callback_) {
+
+    if (!self) return;
+
+    auto it = self->callbacks_.find(sub);
+    if (it != self->callbacks_.end()) {
         std::string subject = natsMsg_GetSubject(msg);
         std::string data(natsMsg_GetData(msg), natsMsg_GetDataLength(msg));
-        self->callback_(subject, data);
+        try {
+            nlohmann::json json_data = nlohmann::json::parse(data);
+            it->second(subject, json_data);
+        } catch (const std::exception& e) {
+            std::cerr << "Failed to parse JSON message: " << e.what() << "\n";
+        }
+    } else {
+        std::cerr << "No callback found for subscription.\n";
     }
-    natsMsg_Destroy(msg);  // This is default nats behavior - to destroy the message after processing.
 }
 
 void NatsManager::Disconnect() {
@@ -68,8 +76,12 @@ void NatsManager::Disconnect() {
         natsConnection_Destroy(conn_);
         conn_ = nullptr;
     }
-    if (sub_) {
-        natsSubscription_Destroy(sub_);
-        sub_ = nullptr;
+    // Unsubscribe all subscriptions
+    for (auto& pair : callbacks_) {
+        natsSubscription* sub = pair.first;
+        if (sub) {
+            natsSubscription_Unsubscribe(sub);  // stop receiving messages
+            natsSubscription_Destroy(sub);      // free the subscription object
+        }
     }
 }

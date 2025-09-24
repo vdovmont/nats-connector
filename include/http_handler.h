@@ -17,6 +17,7 @@ enum class Status : int {
     Error = 0,
     Ok = 1
 };
+std::string ToString(Status s);
 
 // HTTP request handler
 class FileRequestHandler : public Poco::Net::HTTPRequestHandler {

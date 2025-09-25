@@ -35,7 +35,12 @@ class FileRequestHandler : public Poco::Net::HTTPRequestHandler {
     void HandleStart(Poco::Net::HTTPServerRequest& request, std::ostream& ostr);
     void HandleState(std::ostream& ostr, std::string& ID);
 
-    void OnMessageState(const std::string& msg_subject, const nlohmann::json& message, nlohmann::json& state);
+    nlohmann::json GenerateResponse(const std::string& ID, const enum Status status, const std::string& desc);
+    nlohmann::json GenerateErrorResponse(const std::string& desc);
+    void OnMessageState(const std::string& msg_subject,
+                        const nlohmann::json& message,
+                        nlohmann::json& state,
+                        const std::string& ID);
 };
 
 // Factory to create handlers (needed by Poco)

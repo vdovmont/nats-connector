@@ -53,7 +53,7 @@ void FileRequestHandler::handleRequest(Poco::Net::HTTPServerRequest& request, Po
         std::string ID = ParseID(uri);
         HandleState(ostr, ID);
     } else {
-        nlohmann::json errorJson = {{"status", ToString(Status::Error)}, {"reason", "unknown command"}};
+        nlohmann::json errorJson = GenerateErrorResponse("unknown command");
         ostr << errorJson.dump();
     }
 }
@@ -73,12 +73,12 @@ void FileRequestHandler::HandleStart(Poco::Net::HTTPServerRequest& request, std:
         bool published = nats_manager_.Publish(start_subject, message);
 
         if (published) {
-            responseJson = {{"status", ToString(Status::Ok)}, {"id", ID}};
+            responseJson = GenerateResponse(ID, Status::Ok, "BUFFERED");
         } else {
-            responseJson = {{"status", ToString(Status::Error)}, {"reason", "Failed to publish message to NATS"}};
+            responseJson = GenerateErrorResponse("Failed to publish message to NATS");
         }
     } else {
-        responseJson = {{"status", ToString(Status::Error)}, {"reason", "Message is empty"}};
+        responseJson = GenerateErrorResponse("Message is empty");
     }
 
     ostr << responseJson.dump();
@@ -94,16 +94,16 @@ void FileRequestHandler::HandleState(std::ostream& ostr, std::string& ID) {
         state_response_subject += ID;
         bool status = nats_manager_.Subscribe(
             state_response_subject,
-            [this, &responseJson](const std::string& msg_subject, const nlohmann::json& message) {
-                this->OnMessageState(msg_subject, message, responseJson);
+            [this, &responseJson, &ID](const std::string& msg_subject, const nlohmann::json& message) {
+                this->OnMessageState(msg_subject, message, responseJson, ID);
             });
         if (!status) {
-            responseJson = {{"status", ToString(Status::Error)}, {"reason", "Failed to subscribe to NATS subject"}};
+            responseJson = GenerateErrorResponse("Failed to subscribe to NATS subject");
         } else {
             nlohmann::json message = {{"id", ID}};
             status = nats_manager_.Publish(state_request_subject, message);
             if (!status) {
-                responseJson = {{"status", ToString(Status::Error)}, {"reason", "Failed to publish message to NATS"}};
+                responseJson = GenerateErrorResponse("Failed to publish message to NATS");
             } else {
                 while (responseJson.empty()) {
                     std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -112,17 +112,46 @@ void FileRequestHandler::HandleState(std::ostream& ostr, std::string& ID) {
             }
         }
     } else {
-        responseJson = {{"status", ToString(Status::Error)}, {"reason", "ID is not provided"}};
+        responseJson = GenerateErrorResponse("ID is not provided");
     }
 
     ostr << responseJson.dump();
 }
 
+nlohmann::json FileRequestHandler::GenerateResponse(const std::string& ID = "null",
+                                                    const enum Status status = Status::Ok,
+                                                    const std::string& desc = "BUFFERED") {
+    nlohmann::json response;
+    response["query"] = "5234";
+    response["globalID"] = ID;
+    response["status"] = status;
+    response["desc"] = desc;
+    response["solnumbs"] = "0";
+    response["time"] = "0";
+    return response;
+}
+
+nlohmann::json FileRequestHandler::GenerateErrorResponse(const std::string& desc) {
+    return GenerateResponse("null", Status::Error, desc);
+}
+
 void FileRequestHandler::OnMessageState(const std::string& msg_subject,
                                         const nlohmann::json& message,
-                                        nlohmann::json& state) {
-    state = message;
-    state["status"] = ToString(Status::Ok);
+                                        nlohmann::json& state,
+                                        const std::string& ID) {
+    if (message.contains("message") || message.contains("error")) {
+        state["solutions"] = nlohmann::json::array();
+        std::string desc;
+        if (message.contains("message")) {
+            desc = message["message"];
+            state["state"] = GenerateResponse(ID, Status::Ok, desc);
+        } else {
+            desc = message["error"];
+            state["state"] = GenerateResponse(ID, Status::Error, desc);
+        }
+    } else {
+        state = message;
+    }
 }
 
 int ServerApp::main(const std::vector<std::string>&) {

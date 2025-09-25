@@ -40,11 +40,12 @@ std::string FileRequestHandler::GetID(int Query) {
 }
 
 int FileRequestHandler::ParseQuery(std::string& uri) {
+    std::string comparing_string = "numTicket";
     Poco::URI parsedUri(uri);
     Poco::URI::QueryParameters params = parsedUri.getQueryParameters();
     int Query;
     for (const auto& p : params) {
-        if (p.first == "num") {
+        if (p.first == comparing_string) {
             try {
                 Query = std::stoi(p.second);
                 break;

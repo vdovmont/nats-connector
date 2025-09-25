@@ -10,6 +10,7 @@
 #include <nlohmann/json.hpp>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 
 #include "nats_manager.h"
 
@@ -27,20 +28,27 @@ class FileRequestHandler : public Poco::Net::HTTPRequestHandler {
     void handleRequest(Poco::Net::HTTPServerRequest& request, Poco::Net::HTTPServerResponse& response) override;
 
   private:
-    NatsManager& nats_manager_;
-
     std::string GenerateID();
-    std::string ParseID(std::string& uri);
+    std::string GetID(int Query);
+    int ParseQuery(std::string& uri);
+    int NextQuery(const std::string& ID);
 
     void HandleStart(Poco::Net::HTTPServerRequest& request, std::ostream& ostr);
-    void HandleState(std::ostream& ostr, std::string& ID);
+    void HandleState(std::ostream& ostr, int ID);
 
-    nlohmann::json GenerateResponse(const std::string& ID, const enum Status status, const std::string& desc);
-    nlohmann::json GenerateErrorResponse(const std::string& desc);
+    nlohmann::json GenerateResponse(const int query,
+                                    const std::string& ID,
+                                    const enum Status status,
+                                    const std::string& desc);
+    nlohmann::json GenerateErrorResponse(const int query, const std::string& desc);
     void OnMessageState(const std::string& msg_subject,
                         const nlohmann::json& message,
                         nlohmann::json& state,
-                        const std::string& ID);
+                        const int Query);
+
+    NatsManager& nats_manager_;
+    static int query_number_;
+    static std::unordered_map<std::string, int> id_query_map_;
 };
 
 // Factory to create handlers (needed by Poco)

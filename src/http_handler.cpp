@@ -160,8 +160,8 @@ nlohmann::json FileRequestHandler::GenerateResponse(const int query,
     response["globalID"] = ID;
     response["status"] = status;
     response["desc"] = desc;
-    response["solnumbs"] = "0";
-    response["time"] = "0";
+    response["solnumbs"] = 0;
+    response["time"] = 0;
     return response;
 }
 

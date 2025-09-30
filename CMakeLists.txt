@@ -63,7 +63,6 @@ set(ENABLE_SAMPLES OFF CACHE BOOL "" FORCE)
 
 # These flags needs to avoid linking errors
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
 set(CMAKE_CONFIGURATION_TYPES "Release" CACHE STRING "" FORCE)
 
 include(FetchContent)

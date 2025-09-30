@@ -3,6 +3,7 @@
 #include <Poco/URI.h>
 
 #include <chrono>
+#include <future>
 #include <iomanip>
 
 #include "nats_manager.h"
@@ -40,18 +41,18 @@ std::string FileRequestHandler::GetID(int Query) {
 }
 
 int FileRequestHandler::ParseQuery(std::string& uri) {
-    std::string comparing_string = "numTicket";
     Poco::URI parsedUri(uri);
     Poco::URI::QueryParameters params = parsedUri.getQueryParameters();
-    int Query;
+
+    int Query = 0;
     for (const auto& p : params) {
-        if (p.first == comparing_string) {
+        if (p.first == "numTicket" || p.first == "num") {
             try {
                 Query = std::stoi(p.second);
-                break;
             } catch (const std::exception& e) {
                 Query = 0;
             }
+            break;
         }
     }
     return Query;
@@ -116,36 +117,41 @@ void FileRequestHandler::HandleStart(Poco::Net::HTTPServerRequest& request, std:
 }
 
 void FileRequestHandler::HandleState(std::ostream& ostr, int Query) {
-    nlohmann::json responseJson;
     std::string ID = GetID(Query);
+    nlohmann::json responseJson;
 
-    if (!ID.empty()) {
-        std::string state_request_subject = "State.Request.";
-        std::string state_response_subject = "State.Response.";
-        state_request_subject += ID;
-        state_response_subject += ID;
-        bool status = nats_manager_.Subscribe(
-            state_response_subject,
-            [this, &responseJson, Query](const std::string& msg_subject, const nlohmann::json& message) {
-                this->OnMessageState(msg_subject, message, responseJson, Query);
-            });
-        if (!status) {
-            responseJson = GenerateResponse(Query, ID, Status::Error, "Failed to subscribe to NATS subject");
-        } else {
-            nlohmann::json message = {{"id", ID}};
-            status = nats_manager_.Publish(state_request_subject, message);
-            if (!status) {
-                responseJson = GenerateResponse(Query, ID, Status::Error, "Failed to publish message to NATS");
-            } else {
-                while (responseJson.empty()) {
-                    std::this_thread::sleep_for(std::chrono::seconds(1));
-                    // we wait for the state to be updated via the callback
-                }
-            }
-        }
-    } else {
+    if (ID.empty()) {
         responseJson =
             GenerateResponse(Query, ID, Status::Error, "Wrong query number (either not found or not generated yet)");
+        ostr << responseJson.dump();
+        return;
+    }
+
+    std::string state_request_subject = "State.Request." + ID;
+    std::string state_response_subject = "State.Response." + ID;
+
+    std::promise<nlohmann::json> promise;
+    auto future = promise.get_future();
+
+    auto sub = nats_manager_.Subscribe(
+        state_response_subject,
+        [this, &promise, Query](const std::string& msg_subject, const nlohmann::json& message) mutable {
+            nlohmann::json state;
+            this->OnMessageState(msg_subject, message, state, Query);
+            promise.set_value(std::move(state));
+            nats_manager_.Unsubscribe(msg_subject);  // unsubscribe right after we get our message
+        });
+
+    if (!sub) {
+        responseJson = GenerateResponse(Query, ID, Status::Error, "Failed to subscribe to NATS subject");
+    } else {
+        nlohmann::json request = {{"id", ID}};
+        if (!nats_manager_.Publish(state_request_subject, request)) {
+            responseJson = GenerateResponse(Query, ID, Status::Error, "Failed to publish message to NATS");
+        } else {
+            // wait for response (blocks until promise is fulfilled)
+            responseJson = future.get();
+        }
     }
 
     ostr << responseJson.dump();

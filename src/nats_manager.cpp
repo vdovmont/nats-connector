@@ -46,7 +46,26 @@ bool NatsManager::Subscribe(const std::string& subject,
         return false;
     }
 
+    subs_[subject] = sub;
     callbacks_[sub] = handler;
+    return true;
+}
+
+bool NatsManager::Unsubscribe(const std::string& subject) {
+    auto it = subs_.find(subject);
+    if (it == subs_.end()) {
+        return false;
+    }
+
+    natsSubscription* sub = it->second;
+    natsStatus status = natsSubscription_Unsubscribe(sub);
+    if (status != NATS_OK) {
+        std::cerr << "Unsubscribe failed: " << natsStatus_GetText(status) << "\n";
+        return false;
+    }
+
+    callbacks_.erase(sub);
+    subs_.erase(it);
     return true;
 }
 

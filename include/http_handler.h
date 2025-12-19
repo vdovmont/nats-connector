@@ -6,15 +6,16 @@
 #include <Poco/Net/ServerSocket.h>
 #include <Poco/Util/ServerApplication.h>
 
+#include <atomic>
+#include <chrono>
+#include <cstdint>
+#include <fstream>
 #include <iostream>
+#include <mutex>
 #include <nlohmann/json.hpp>
 #include <sstream>
 #include <string>
 #include <unordered_map>
-#include <atomic>
-#include <chrono>
-#include <mutex>
-#include <fstream>
 
 #include "nats_manager.h"
 
@@ -36,7 +37,8 @@ class FileRequestHandler : public Poco::Net::HTTPRequestHandler {
     static bool IsMathCoreAlive();
 
   private:
-    static void RecordMathCoreHeartbeat();
+    static void RecordMathCoreHeartbeat(const nlohmann::json& payload);
+    static void HandleMathCoreStartup();
 
     std::string GenerateID();
     std::string GetID(int Query);
@@ -57,7 +59,7 @@ class FileRequestHandler : public Poco::Net::HTTPRequestHandler {
                         const int Query);
 
     void EnsureStateLoadedLocked();
-    void PersistStateLocked();
+    static void PersistStateLocked();
     void RemovePairLocked(const std::string& id);
 
     NatsManager& nats_manager_;
@@ -68,6 +70,7 @@ class FileRequestHandler : public Poco::Net::HTTPRequestHandler {
     static const std::string kStateFilePath;
 
     static std::atomic<bool> mathcore_alive_;
+    static std::atomic<uint64_t> mathcore_startup_epoch_;
     static std::chrono::steady_clock::time_point last_mathcore_heartbeat_;
     static std::mutex health_mutex_;
     static bool mathcore_subscription_active_;

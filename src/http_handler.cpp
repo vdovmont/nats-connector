@@ -24,11 +24,12 @@ std::mutex FileRequestHandler::state_mutex_;
 bool FileRequestHandler::state_loaded_ = false;
 const std::string FileRequestHandler::kStateFilePath = "query_state.json";
 std::atomic<bool> FileRequestHandler::mathcore_alive_{true};
+std::atomic<uint64_t> FileRequestHandler::mathcore_startup_epoch_{0};
 std::chrono::steady_clock::time_point FileRequestHandler::last_mathcore_heartbeat_ = std::chrono::steady_clock::now();
 std::mutex FileRequestHandler::health_mutex_;
 bool FileRequestHandler::mathcore_subscription_active_ = false;
 const std::chrono::seconds FileRequestHandler::kMathAliveTimeout(60);
-const std::string FileRequestHandler::kMathAliveSubject = "IsMathAlive";
+const std::string FileRequestHandler::kMathAliveSubject = "IsMathAlive.*";
 
 bool FileRequestHandler::StartMathAliveWatcher(NatsManager& nats_manager) {
     std::lock_guard<std::mutex> lock(health_mutex_);
@@ -39,9 +40,10 @@ bool FileRequestHandler::StartMathAliveWatcher(NatsManager& nats_manager) {
     // Consider MathCore healthy until we miss the first heartbeat window.
     last_mathcore_heartbeat_ = std::chrono::steady_clock::now();
     mathcore_alive_.store(true, std::memory_order_relaxed);
-    mathcore_subscription_active_ = nats_manager.Subscribe(
-        kMathAliveSubject,
-        [](const std::string&, const nlohmann::json&) { FileRequestHandler::RecordMathCoreHeartbeat(); });
+    mathcore_subscription_active_ =
+        nats_manager.Subscribe(kMathAliveSubject, [](const std::string&, const nlohmann::json& message) {
+            FileRequestHandler::RecordMathCoreHeartbeat(message);
+        });
 
     if (!mathcore_subscription_active_) {
         mathcore_alive_.store(false, std::memory_order_relaxed);
@@ -60,10 +62,33 @@ bool FileRequestHandler::IsMathCoreAlive() {
     return mathcore_alive_.load(std::memory_order_relaxed);
 }
 
-void FileRequestHandler::RecordMathCoreHeartbeat() {
-    std::lock_guard<std::mutex> lock(health_mutex_);
-    last_mathcore_heartbeat_ = std::chrono::steady_clock::now();
-    mathcore_alive_.store(true, std::memory_order_relaxed);
+void FileRequestHandler::RecordMathCoreHeartbeat(const nlohmann::json& payload) {
+    bool is_startup = false;
+    if (payload.contains("event") && payload["event"].is_string()) {
+        is_startup = (payload["event"].get<std::string>() == "startup");
+    }
+
+    // strange block because of lock_guard scope (inside we're holding health_mutex_ and outside we're not)
+    {
+        std::lock_guard<std::mutex> lock(health_mutex_);
+        last_mathcore_heartbeat_ = std::chrono::steady_clock::now();
+        mathcore_alive_.store(true, std::memory_order_relaxed);
+        if (is_startup) {
+            mathcore_startup_epoch_.fetch_add(1, std::memory_order_relaxed);
+        }
+    }
+
+    if (is_startup) {
+        HandleMathCoreStartup();
+    }
+}
+
+void FileRequestHandler::HandleMathCoreStartup() {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    id_query_map_.clear();
+    query_number_ = 0;
+    state_loaded_ = true;
+    PersistStateLocked();
 }
 
 std::string FileRequestHandler::GenerateID() {
@@ -185,6 +210,7 @@ void FileRequestHandler::HandleState(std::ostream& ostr, int Query) {
 
     std::string state_request_subject = "State.Request." + ID;
     std::string state_response_subject = "State.Response." + ID;
+    uint64_t startup_epoch = mathcore_startup_epoch_.load(std::memory_order_relaxed);
 
     if (!IsMathCoreAlive()) {
         responseJson = GenerateResponse(Query, ID, Status::Error, "MathCore is unavailable");
@@ -217,6 +243,16 @@ void FileRequestHandler::HandleState(std::ostream& ostr, int Query) {
             // wait for response or abort when MathCore stops sending heartbeats
             bool done = false;
             while (!done) {
+                if (startup_epoch != mathcore_startup_epoch_.load(std::memory_order_relaxed)) {
+                    nats_manager_.Unsubscribe(state_response_subject);
+                    responseJson = GenerateResponse(Query, ID, Status::Error, "MathCore was restarted");
+                    std::lock_guard<std::mutex> lock(state_mutex_);
+                    EnsureStateLoadedLocked();
+                    RemovePairLocked(ID);
+                    done = true;
+                    break;
+                }
+
                 if (!IsMathCoreAlive()) {
                     nats_manager_.Unsubscribe(state_response_subject);
                     responseJson = GenerateResponse(Query, ID, Status::Error, "MathCore is unavailable");

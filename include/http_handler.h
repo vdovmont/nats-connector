@@ -11,6 +11,8 @@
 #include <sstream>
 #include <string>
 #include <unordered_map>
+#include <atomic>
+#include <chrono>
 #include <mutex>
 #include <fstream>
 
@@ -29,7 +31,13 @@ class FileRequestHandler : public Poco::Net::HTTPRequestHandler {
 
     void handleRequest(Poco::Net::HTTPServerRequest& request, Poco::Net::HTTPServerResponse& response) override;
 
+    // Subscribe to MathCore heartbeat channel; should be called once during startup.
+    static bool StartMathAliveWatcher(NatsManager& nats_manager);
+    static bool IsMathCoreAlive();
+
   private:
+    static void RecordMathCoreHeartbeat();
+
     std::string GenerateID();
     std::string GetID(int Query);
     int ParseQuery(std::string& uri);
@@ -58,6 +66,13 @@ class FileRequestHandler : public Poco::Net::HTTPRequestHandler {
     static std::mutex state_mutex_;
     static bool state_loaded_;
     static const std::string kStateFilePath;
+
+    static std::atomic<bool> mathcore_alive_;
+    static std::chrono::steady_clock::time_point last_mathcore_heartbeat_;
+    static std::mutex health_mutex_;
+    static bool mathcore_subscription_active_;
+    static const std::chrono::seconds kMathAliveTimeout;
+    static const std::string kMathAliveSubject;
 };
 
 // Factory to create handlers (needed by Poco)

@@ -10,7 +10,6 @@
 
 #include "nats_manager.h"
 
-
 inline std::string ToString(Status s) {
     switch (s) {
         case Status::Error: return "Error";
@@ -24,6 +23,48 @@ std::unordered_map<std::string, int> FileRequestHandler::id_query_map_;
 std::mutex FileRequestHandler::state_mutex_;
 bool FileRequestHandler::state_loaded_ = false;
 const std::string FileRequestHandler::kStateFilePath = "query_state.json";
+std::atomic<bool> FileRequestHandler::mathcore_alive_{true};
+std::chrono::steady_clock::time_point FileRequestHandler::last_mathcore_heartbeat_ = std::chrono::steady_clock::now();
+std::mutex FileRequestHandler::health_mutex_;
+bool FileRequestHandler::mathcore_subscription_active_ = false;
+const std::chrono::seconds FileRequestHandler::kMathAliveTimeout(60);
+const std::string FileRequestHandler::kMathAliveSubject = "IsMathAlive";
+
+bool FileRequestHandler::StartMathAliveWatcher(NatsManager& nats_manager) {
+    std::lock_guard<std::mutex> lock(health_mutex_);
+    if (mathcore_subscription_active_) {
+        return true;
+    }
+
+    // Consider MathCore healthy until we miss the first heartbeat window.
+    last_mathcore_heartbeat_ = std::chrono::steady_clock::now();
+    mathcore_alive_.store(true, std::memory_order_relaxed);
+    mathcore_subscription_active_ = nats_manager.Subscribe(
+        kMathAliveSubject,
+        [](const std::string&, const nlohmann::json&) { FileRequestHandler::RecordMathCoreHeartbeat(); });
+
+    if (!mathcore_subscription_active_) {
+        mathcore_alive_.store(false, std::memory_order_relaxed);
+        std::cerr << "Failed to subscribe to MathCore heartbeat subject: " << kMathAliveSubject << std::endl;
+    }
+
+    return mathcore_subscription_active_;
+}
+
+bool FileRequestHandler::IsMathCoreAlive() {
+    std::lock_guard<std::mutex> lock(health_mutex_);
+    auto now = std::chrono::steady_clock::now();
+    if (now - last_mathcore_heartbeat_ > kMathAliveTimeout) {
+        mathcore_alive_.store(false, std::memory_order_relaxed);
+    }
+    return mathcore_alive_.load(std::memory_order_relaxed);
+}
+
+void FileRequestHandler::RecordMathCoreHeartbeat() {
+    std::lock_guard<std::mutex> lock(health_mutex_);
+    last_mathcore_heartbeat_ = std::chrono::steady_clock::now();
+    mathcore_alive_.store(true, std::memory_order_relaxed);
+}
 
 std::string FileRequestHandler::GenerateID() {
     auto now = std::chrono::system_clock::now();
@@ -106,7 +147,9 @@ void FileRequestHandler::HandleStart(Poco::Net::HTTPServerRequest& request, std:
     body << stream.rdbuf();
     nlohmann::json responseJson;
 
-    if (!body.str().empty()) {
+    if (!IsMathCoreAlive()) {
+        responseJson = GenerateErrorResponse(0, "MathCore is unavailable");
+    } else if (!body.str().empty()) {
         std::string ID = GenerateID();
         int Query = NextQuery(ID);
         std::string start_subject = "Start.";
@@ -143,6 +186,15 @@ void FileRequestHandler::HandleState(std::ostream& ostr, int Query) {
     std::string state_request_subject = "State.Request." + ID;
     std::string state_response_subject = "State.Response." + ID;
 
+    if (!IsMathCoreAlive()) {
+        responseJson = GenerateResponse(Query, ID, Status::Error, "MathCore is unavailable");
+        std::lock_guard<std::mutex> lock(state_mutex_);
+        EnsureStateLoadedLocked();
+        RemovePairLocked(ID);
+        ostr << responseJson.dump();
+        return;
+    }
+
     std::promise<nlohmann::json> promise;
     auto future = promise.get_future();
 
@@ -162,8 +214,25 @@ void FileRequestHandler::HandleState(std::ostream& ostr, int Query) {
         if (!nats_manager_.Publish(state_request_subject, request)) {
             responseJson = GenerateResponse(Query, ID, Status::Error, "Failed to publish message to NATS");
         } else {
-            // wait for response (blocks until promise is fulfilled)
-            responseJson = future.get();
+            // wait for response or abort when MathCore stops sending heartbeats
+            bool done = false;
+            while (!done) {
+                if (!IsMathCoreAlive()) {
+                    nats_manager_.Unsubscribe(state_response_subject);
+                    responseJson = GenerateResponse(Query, ID, Status::Error, "MathCore is unavailable");
+                    std::lock_guard<std::mutex> lock(state_mutex_);
+                    EnsureStateLoadedLocked();
+                    RemovePairLocked(ID);
+                    done = true;
+                    break;
+                }
+
+                auto status = future.wait_for(std::chrono::seconds(1));
+                if (status == std::future_status::ready) {
+                    responseJson = future.get();
+                    done = true;
+                }
+            }
         }
     }
 
@@ -280,6 +349,7 @@ int ServerApp::main(const std::vector<std::string>&) {
     if (!status) {
         return Application::EXIT_SOFTWARE;
     }
+    FileRequestHandler::StartMathAliveWatcher(nats_manager);
 
     Poco::Net::ServerSocket svs(port);
     Poco::Net::HTTPServer srv(new FileRequestHandlerFactory(nats_manager), svs, new Poco::Net::HTTPServerParams);

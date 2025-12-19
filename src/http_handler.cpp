@@ -3,10 +3,13 @@
 #include <Poco/URI.h>
 
 #include <chrono>
+#include <fstream>
 #include <future>
 #include <iomanip>
+#include <mutex>
 
 #include "nats_manager.h"
+
 
 inline std::string ToString(Status s) {
     switch (s) {
@@ -18,6 +21,9 @@ inline std::string ToString(Status s) {
 
 int FileRequestHandler::query_number_ = 0;
 std::unordered_map<std::string, int> FileRequestHandler::id_query_map_;
+std::mutex FileRequestHandler::state_mutex_;
+bool FileRequestHandler::state_loaded_ = false;
+const std::string FileRequestHandler::kStateFilePath = "query_state.json";
 
 std::string FileRequestHandler::GenerateID() {
     auto now = std::chrono::system_clock::now();
@@ -32,6 +38,8 @@ std::string FileRequestHandler::GenerateID() {
 }
 
 std::string FileRequestHandler::GetID(int Query) {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    EnsureStateLoadedLocked();
     for (const auto& pair : id_query_map_) {
         if (pair.second == Query) {
             return pair.first;
@@ -59,8 +67,11 @@ int FileRequestHandler::ParseQuery(std::string& uri) {
 }
 
 int FileRequestHandler::NextQuery(const std::string& ID) {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    EnsureStateLoadedLocked();
     ++query_number_;
     id_query_map_[ID] = query_number_;
+    PersistStateLocked();
     return query_number_;
 }
 
@@ -107,6 +118,8 @@ void FileRequestHandler::HandleStart(Poco::Net::HTTPServerRequest& request, std:
         if (published) {
             responseJson = GenerateResponse(Query, ID, Status::Ok, "BUFFERED");
         } else {
+            std::lock_guard<std::mutex> lock(state_mutex_);
+            RemovePairLocked(ID);
             responseJson = GenerateResponse(Query, ID, Status::Error, "Failed to publish message to NATS");
         }
     } else {
@@ -194,6 +207,68 @@ void FileRequestHandler::OnMessageState(const std::string& msg_subject,
         state = message;
         state["state"]["query"] = Query;
     }
+
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    EnsureStateLoadedLocked();
+    RemovePairLocked(ID);
+}
+
+void FileRequestHandler::EnsureStateLoadedLocked() {
+    if (state_loaded_) {
+        return;
+    }
+
+    std::ifstream input(kStateFilePath);
+    if (input.is_open()) {
+        try {
+            nlohmann::json persisted;
+            input >> persisted;
+            if (persisted.is_array()) {
+                for (const auto& entry : persisted) {
+                    if (entry.contains("id") && entry.contains("query")) {
+                        std::string id = entry["id"].get<std::string>();
+                        int query = entry["query"].get<int>();
+                        id_query_map_[id] = query;
+                        if (query > query_number_) {
+                            query_number_ = query;
+                        }
+                    }
+                }
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "Failed to load persisted query state: " << e.what() << std::endl;
+        }
+    }
+    state_loaded_ = true;
+}
+
+void FileRequestHandler::PersistStateLocked() {
+    nlohmann::json persisted = nlohmann::json::array();
+    for (const auto& entry : id_query_map_) {
+        persisted.push_back({{"id", entry.first}, {"query", entry.second}});
+    }
+
+    std::ofstream output(kStateFilePath, std::ios::trunc);
+    if (!output.is_open()) {
+        std::cerr << "Failed to open state file for writing: " << kStateFilePath << std::endl;
+        return;
+    }
+
+    output << persisted.dump();
+}
+
+void FileRequestHandler::RemovePairLocked(const std::string& id) {
+    if (id.empty()) {
+        return;
+    }
+
+    auto it = id_query_map_.find(id);
+    if (it == id_query_map_.end()) {
+        return;
+    }
+
+    id_query_map_.erase(it);
+    PersistStateLocked();
 }
 
 int ServerApp::main(const std::vector<std::string>&) {

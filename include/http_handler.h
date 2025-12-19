@@ -11,6 +11,8 @@
 #include <sstream>
 #include <string>
 #include <unordered_map>
+#include <mutex>
+#include <fstream>
 
 #include "nats_manager.h"
 
@@ -46,9 +48,16 @@ class FileRequestHandler : public Poco::Net::HTTPRequestHandler {
                         nlohmann::json& state,
                         const int Query);
 
+    void EnsureStateLoadedLocked();
+    void PersistStateLocked();
+    void RemovePairLocked(const std::string& id);
+
     NatsManager& nats_manager_;
     static int query_number_;
     static std::unordered_map<std::string, int> id_query_map_;
+    static std::mutex state_mutex_;
+    static bool state_loaded_;
+    static const std::string kStateFilePath;
 };
 
 // Factory to create handlers (needed by Poco)

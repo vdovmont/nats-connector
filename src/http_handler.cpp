@@ -20,6 +20,7 @@ inline std::string ToString(Status s) {
 
 int FileRequestHandler::query_number_ = 0;
 std::unordered_map<std::string, int> FileRequestHandler::id_query_map_;
+std::unordered_map<std::string, int> FileRequestHandler::persisted_id_query_map_;
 std::mutex FileRequestHandler::state_mutex_;
 bool FileRequestHandler::state_loaded_ = false;
 const std::string FileRequestHandler::kStateFilePath = "query_state.json";
@@ -137,6 +138,7 @@ int FileRequestHandler::NextQuery(const std::string& ID) {
     EnsureStateLoadedLocked();
     ++query_number_;
     id_query_map_[ID] = query_number_;
+    persisted_id_query_map_[ID] = query_number_;
     PersistStateLocked();
     return query_number_;
 }
@@ -216,7 +218,6 @@ void FileRequestHandler::HandleState(std::ostream& ostr, int Query) {
         responseJson = GenerateResponse(Query, ID, Status::Error, "MathCore is unavailable");
         std::lock_guard<std::mutex> lock(state_mutex_);
         EnsureStateLoadedLocked();
-        RemovePairLocked(ID);
         ostr << responseJson.dump();
         return;
     }
@@ -256,9 +257,6 @@ void FileRequestHandler::HandleState(std::ostream& ostr, int Query) {
                 if (!IsMathCoreAlive()) {
                     nats_manager_.Unsubscribe(state_response_subject);
                     responseJson = GenerateResponse(Query, ID, Status::Error, "MathCore is unavailable");
-                    std::lock_guard<std::mutex> lock(state_mutex_);
-                    EnsureStateLoadedLocked();
-                    RemovePairLocked(ID);
                     done = true;
                     break;
                 }
@@ -315,7 +313,7 @@ void FileRequestHandler::OnMessageState(const std::string& msg_subject,
 
     std::lock_guard<std::mutex> lock(state_mutex_);
     EnsureStateLoadedLocked();
-    RemovePairLocked(ID);
+    RemovePersistedPairLocked(ID);
 }
 
 void FileRequestHandler::EnsureStateLoadedLocked() {
@@ -334,6 +332,7 @@ void FileRequestHandler::EnsureStateLoadedLocked() {
                         std::string id = entry["id"].get<std::string>();
                         int query = entry["query"].get<int>();
                         id_query_map_[id] = query;
+                        persisted_id_query_map_[id] = query;
                         if (query > query_number_) {
                             query_number_ = query;
                         }
@@ -349,7 +348,7 @@ void FileRequestHandler::EnsureStateLoadedLocked() {
 
 void FileRequestHandler::PersistStateLocked() {
     nlohmann::json persisted = nlohmann::json::array();
-    for (const auto& entry : id_query_map_) {
+    for (const auto& entry : persisted_id_query_map_) {
         persisted.push_back({{"id", entry.first}, {"query", entry.second}});
     }
 
@@ -367,12 +366,22 @@ void FileRequestHandler::RemovePairLocked(const std::string& id) {
         return;
     }
 
-    auto it = id_query_map_.find(id);
-    if (it == id_query_map_.end()) {
+    // Remove from both in-memory and persisted maps (used for failed starts).
+    id_query_map_.erase(id);
+    RemovePersistedPairLocked(id);
+}
+
+void FileRequestHandler::RemovePersistedPairLocked(const std::string& id) {
+    if (id.empty()) {
         return;
     }
 
-    id_query_map_.erase(it);
+    auto it = persisted_id_query_map_.find(id);
+    if (it == persisted_id_query_map_.end()) {
+        return;
+    }
+
+    persisted_id_query_map_.erase(it);
     PersistStateLocked();
 }
 

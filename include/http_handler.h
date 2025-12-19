@@ -61,10 +61,12 @@ class FileRequestHandler : public Poco::Net::HTTPRequestHandler {
     void EnsureStateLoadedLocked();
     static void PersistStateLocked();
     void RemovePairLocked(const std::string& id);
+    void RemovePersistedPairLocked(const std::string& id);
 
     NatsManager& nats_manager_;
     static int query_number_;
     static std::unordered_map<std::string, int> id_query_map_;
+    static std::unordered_map<std::string, int> persisted_id_query_map_;
     static std::mutex state_mutex_;
     static bool state_loaded_;
     static const std::string kStateFilePath;

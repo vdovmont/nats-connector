@@ -14,6 +14,9 @@ constexpr int json_indent = 4;
 class LogStream {
   public:
     explicit LogStream(const std::string& filename, std::ostream& stream = std::cout);
+    explicit LogStream(const std::string& filename,
+                       const std::string& latest_filename,
+                       std::ostream& stream = std::cout);
     ~LogStream();
 
     template <typename T>
@@ -22,6 +25,9 @@ class LogStream {
         (*stream_) << value;
         if (file_.is_open()) {
             file_ << value;
+        }
+        if (latest_file_.is_open()) {
+            latest_file_ << value;
         }
         return *this;
     }
@@ -32,6 +38,7 @@ class LogStream {
     void WritePrefixIfNeeded();
 
     std::ofstream file_;
+    std::ofstream latest_file_;
     std::ostream* stream_;
     bool at_line_start_ = true;
 };

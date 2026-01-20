@@ -8,6 +8,7 @@
 #include <iomanip>
 #include <mutex>
 
+#include "logger.h"
 #include "nats_manager.h"
 
 inline std::string ToString(Status s) {
@@ -48,7 +49,7 @@ bool FileRequestHandler::StartMathAliveWatcher(NatsManager& nats_manager) {
 
     if (!mathcore_subscription_active_) {
         mathcore_alive_.store(false, std::memory_order_relaxed);
-        std::cerr << "Failed to subscribe to MathCore heartbeat subject: " << kMathAliveSubject << std::endl;
+        logger::log_error() << "Failed to subscribe to MathCore heartbeat subject: " << kMathAliveSubject << std::endl;
     }
 
     return mathcore_subscription_active_;
@@ -340,7 +341,7 @@ void FileRequestHandler::EnsureStateLoadedLocked() {
                 }
             }
         } catch (const std::exception& e) {
-            std::cerr << "Failed to load persisted query state: " << e.what() << std::endl;
+            logger::log_error() << "Failed to load persisted query state: " << e.what() << std::endl;
         }
     }
     state_loaded_ = true;
@@ -354,7 +355,7 @@ void FileRequestHandler::PersistStateLocked() {
 
     std::ofstream output(kStateFilePath, std::ios::trunc);
     if (!output.is_open()) {
-        std::cerr << "Failed to open state file for writing: " << kStateFilePath << std::endl;
+        logger::log_error() << "Failed to open state file for writing: " << kStateFilePath << std::endl;
         return;
     }
 
@@ -399,7 +400,7 @@ int ServerApp::main(const std::vector<std::string>&) {
     Poco::Net::ServerSocket svs(port);
     Poco::Net::HTTPServer srv(new FileRequestHandlerFactory(nats_manager), svs, new Poco::Net::HTTPServerParams);
     srv.start();
-    std::cout << "HTTP Server started on port " << port << std::endl;
+    logger::log() << "HTTP Server started on port " << port << std::endl;
     waitForTerminationRequest();  // wait for CTRL-C
     srv.stop();
 

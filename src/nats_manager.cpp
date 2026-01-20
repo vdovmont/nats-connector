@@ -1,5 +1,7 @@
 #include "nats_manager.h"
 
+#include "logger.h"
+
 NatsManager::NatsManager() : conn_(nullptr) {}
 
 NatsManager::~NatsManager() { Disconnect(); }
@@ -7,7 +9,7 @@ NatsManager::~NatsManager() { Disconnect(); }
 bool NatsManager::Connect(const std::string& server_url) {
     natsStatus status = natsConnection_ConnectTo(&conn_, server_url.c_str());
     if (status != NATS_OK) {
-        std::cerr << "NATS connect failed: " << natsStatus_GetText(status) << "\n";
+        logger::log_error() << "NATS connect failed: " << natsStatus_GetText(status) << "\n";
         return false;
     }
     return true;
@@ -15,14 +17,14 @@ bool NatsManager::Connect(const std::string& server_url) {
 
 bool NatsManager::Publish(const std::string& subject, const nlohmann::json& message) {
     if (!conn_) {
-        std::cerr << "Not connected to NATS server.\n";
+        logger::log_error() << "Not connected to NATS server.\n";
         return false;
     }
 
     std::string msg_str = message.dump();
     natsStatus status = natsConnection_Publish(conn_, subject.c_str(), msg_str.c_str(), msg_str.size());
     if (status != NATS_OK) {
-        std::cerr << "Publish failed: " << natsStatus_GetText(status) << "\n";
+        logger::log_error() << "Publish failed: " << natsStatus_GetText(status) << "\n";
         return false;
     }
     return true;
@@ -31,7 +33,7 @@ bool NatsManager::Publish(const std::string& subject, const nlohmann::json& mess
 bool NatsManager::Subscribe(const std::string& subject,
                             std::function<void(const std::string&, const nlohmann::json&)> handler) {
     if (!conn_) {
-        std::cerr << "Not connected to NATS server.\n";
+        logger::log_error() << "Not connected to NATS server.\n";
         return false;
     }
 
@@ -42,7 +44,7 @@ bool NatsManager::Subscribe(const std::string& subject,
     // for more information - google "bridging C callbacks with C++ member functions".
     // Basically in our case - it allows us pass down whatever function we want to deal with the messages.
     if (status != NATS_OK) {
-        std::cerr << "Subscribe failed: " << natsStatus_GetText(status) << "\n";
+        logger::log_error() << "Subscribe failed: " << natsStatus_GetText(status) << "\n";
         return false;
     }
 
@@ -60,7 +62,7 @@ bool NatsManager::Unsubscribe(const std::string& subject) {
     natsSubscription* sub = it->second;
     natsStatus status = natsSubscription_Unsubscribe(sub);
     if (status != NATS_OK) {
-        std::cerr << "Unsubscribe failed: " << natsStatus_GetText(status) << "\n";
+        logger::log_error() << "Unsubscribe failed: " << natsStatus_GetText(status) << "\n";
         return false;
     }
 
@@ -83,10 +85,10 @@ void NatsManager::Callback(natsConnection* nc, natsSubscription* sub, natsMsg* m
             nlohmann::json json_data = nlohmann::json::parse(data);
             it->second(subject, json_data);
         } catch (const std::exception& e) {
-            std::cerr << "Failed to parse JSON message: " << e.what() << "\n";
+            logger::log_error() << "Failed to parse JSON message: " << e.what() << "\n";
         }
     } else {
-        std::cerr << "No callback found for subscription.\n";
+        logger::log_error() << "No callback found for subscription.\n";
     }
 }
 

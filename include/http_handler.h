@@ -10,6 +10,8 @@
 #include <chrono>
 #include <cstdint>
 #include <fstream>
+#include <functional>
+#include <future>
 #include <iostream>
 #include <mutex>
 #include <nlohmann/json.hpp>
@@ -43,10 +45,20 @@ class FileRequestHandler : public Poco::Net::HTTPRequestHandler {
     std::string GenerateID();
     std::string GetID(int Query);
     int ParseQuery(std::string& uri);
+    std::string ParseLogId(const std::string& uri);
     int NextQuery(const std::string& ID);
 
     void HandleStart(Poco::Net::HTTPServerRequest& request, std::ostream& ostr);
     void HandleState(std::ostream& ostr, int ID);
+    void HandleLogsList(std::ostream& ostr);
+    void HandleGetLog(std::ostream& ostr, const std::string& id);
+    void WaitForResponse(uint64_t startup_epoch,
+                         const std::string& response_subject,
+                         const std::string& request_name,
+                         std::future<nlohmann::json>& future,
+                         const std::function<nlohmann::json(const std::string&)>& make_error,
+                         const std::function<void()>& on_restart_cleanup,
+                         nlohmann::json& response_json);
 
     nlohmann::json GenerateResponse(const int query,
                                     const std::string& ID,

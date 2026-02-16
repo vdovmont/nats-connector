@@ -119,7 +119,11 @@ std::string FileRequestHandler::GenerateID() {
     // Format: YYYYMMDD_HHMMSS
     std::ostringstream oss;
     std::tm timeinfo{};
+#if defined(_WIN32)
     localtime_s(&timeinfo, &time_t_now);
+#else
+    localtime_r(&time_t_now, &timeinfo);
+#endif
     oss << std::put_time(&timeinfo, "%Y%m%d_%H%M%S");
 
     return oss.str();

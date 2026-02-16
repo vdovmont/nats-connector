@@ -529,7 +529,7 @@ void FileRequestHandler::HandleNatsLogsList(std::ostream& ostr) {
     nlohmann::json responseJson;
     try {
         logger::log() << "Received NatsLogsList request" << std::endl;
-        const std::filesystem::path logs_dir("logs");
+        const std::filesystem::path logs_dir("logs/nats-connector");
         std::vector<std::string> files;
         if (std::filesystem::exists(logs_dir)) {
             std::error_code ec;
@@ -567,7 +567,7 @@ void FileRequestHandler::HandleNatsGetLog(std::ostream& ostr, const std::string&
     nlohmann::json responseJson;
     try {
         logger::log() << "Received NatsGetLog request with ID=" << id << std::endl;
-        const std::filesystem::path logs_dir("logs");
+        const std::filesystem::path logs_dir("logs/nats-connector");
         if (!std::filesystem::exists(logs_dir)) {
             responseJson["error"] = "Logs directory not found";
             logger::log() << "Sent NatsGetLog response for ID=" << id << " (logs dir missing)" << std::endl;

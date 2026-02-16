@@ -12,6 +12,16 @@
 #include "logger.h"
 #include "nats_manager.h"
 
+namespace {
+void TrySetPromiseError(const std::shared_ptr<std::promise<nlohmann::json>>& promise, const std::exception& e) {
+    nlohmann::json error_json;
+    error_json["error"] = e.what();
+    try {
+        promise->set_value(std::move(error_json));
+    } catch (...) {}
+}
+}  // namespace
+
 inline std::string ToString(Status s) {
     switch (s) {
         case Status::Error: return "Error";
@@ -108,7 +118,9 @@ std::string FileRequestHandler::GenerateID() {
 
     // Format: YYYYMMDD_HHMMSS
     std::ostringstream oss;
-    oss << std::put_time(std::localtime(&time_t_now), "%Y%m%d_%H%M%S");
+    std::tm timeinfo{};
+    localtime_s(&timeinfo, &time_t_now);
+    oss << std::put_time(&timeinfo, "%Y%m%d_%H%M%S");
 
     return oss.str();
 }
@@ -125,8 +137,14 @@ std::string FileRequestHandler::GetID(int Query) {
 }
 
 int FileRequestHandler::ParseQuery(std::string& uri) {
-    Poco::URI parsedUri(uri);
-    Poco::URI::QueryParameters params = parsedUri.getQueryParameters();
+    Poco::URI::QueryParameters params;
+    try {
+        Poco::URI parsedUri(uri);
+        params = parsedUri.getQueryParameters();
+    } catch (const std::exception& e) {
+        logger::log_error() << "Failed to parse URI for query: " << e.what() << std::endl;
+        return 0;
+    }
 
     int Query = 0;
     for (const auto& p : params) {
@@ -143,8 +161,14 @@ int FileRequestHandler::ParseQuery(std::string& uri) {
 }
 
 std::string FileRequestHandler::ParseLogId(const std::string& uri) {
-    Poco::URI parsedUri(uri);
-    Poco::URI::QueryParameters params = parsedUri.getQueryParameters();
+    Poco::URI::QueryParameters params;
+    try {
+        Poco::URI parsedUri(uri);
+        params = parsedUri.getQueryParameters();
+    } catch (const std::exception& e) {
+        logger::log_error() << "Failed to parse URI for log id: " << e.what() << std::endl;
+        return "";
+    }
 
     for (const auto& p : params) {
         if (p.first == "id") {
@@ -172,8 +196,16 @@ void FileRequestHandler::WaitForResponse(uint64_t startup_epoch,
                                          const std::function<nlohmann::json(const std::string&)>& make_error,
                                          const std::function<void()>& on_restart_cleanup,
                                          nlohmann::json& response_json) {
+    const auto start_time = std::chrono::steady_clock::now();
     bool done = false;
     while (!done) {
+        if (std::chrono::steady_clock::now() - start_time > std::chrono::seconds(61)) {
+            nats_manager_.Unsubscribe(response_subject);
+            response_json = make_error("MathCore timeout reached");
+            logger::log_error() << "Timeout while waiting for " << request_name << " response" << std::endl;
+            break;
+        }
+
         if (startup_epoch != mathcore_startup_epoch_.load(std::memory_order_relaxed)) {
             nats_manager_.Unsubscribe(response_subject);
             response_json = make_error("MathCore was restarted");
@@ -196,9 +228,17 @@ void FileRequestHandler::WaitForResponse(uint64_t startup_epoch,
 
         auto status = future.wait_for(std::chrono::seconds(1));
         if (status == std::future_status::ready) {
-            response_json = future.get();
-            logger::log() << "Received MathCore response for " << request_name << std::endl;
-            done = true;
+            try {
+                response_json = future.get();
+                logger::log() << "Received MathCore response for " << request_name << std::endl;
+                done = true;
+            } catch (const std::exception& e) {
+                nats_manager_.Unsubscribe(response_subject);
+                response_json = make_error("MathCore response failed");
+                logger::log_error() << "Failed to read MathCore response for " << request_name << ": " << e.what()
+                                    << std::endl;
+                done = true;
+            }
         }
     }
 }
@@ -208,42 +248,55 @@ void FileRequestHandler::handleRequest(Poco::Net::HTTPServerRequest& request, Po
     response.setContentType("application/json");
 
     std::ostream& ostr = response.send();
-    std::string uri = request.getURI();
-    nlohmann::json errorJson;
-
-    if (uri.find("/start") == 0) {
-        HandleStart(request, ostr);
-    } else if (uri.find("/state") == 0) {
-        int Query = ParseQuery(uri);
-        if (Query == 0) {
-            errorJson["error"] = "invalid or missing query number";
-            ostr << errorJson.dump();
-        } else {
-            HandleState(ostr, Query);
-        }
-    } else if (uri.find("/logslist") == 0 || uri.find("/loglist") == 0) {
-        HandleLogsList(ostr);
-    } else if (uri.find("/natslogslist") == 0 || uri.find("/natsloglist") == 0) {
-        HandleNatsLogsList(ostr);
-    } else if (uri.find("/getlog") == 0) {
-        std::string id = ParseLogId(uri);
-        if (id.empty()) {
-            errorJson["error"] = "invalid or missing id";
-            ostr << errorJson.dump();
-        } else {
-            HandleGetLog(ostr, id);
-        }
-    } else if (uri.find("/natsgetlog") == 0) {
-        std::string id = ParseLogId(uri);
-        if (id.empty()) {
-            errorJson["error"] = "invalid or missing id";
-            ostr << errorJson.dump();
-        } else {
-            HandleNatsGetLog(ostr, id);
-        }
-    } else {
+    try {
+        std::string uri = request.getURI();
         nlohmann::json errorJson;
-        errorJson["error"] = "unknown command";
+
+        if (uri.find("/start") == 0) {
+            HandleStart(request, ostr);
+        } else if (uri.find("/state") == 0) {
+            int Query = ParseQuery(uri);
+            if (Query == 0) {
+                errorJson["error"] = "invalid or missing query number";
+                ostr << errorJson.dump();
+            } else {
+                HandleState(ostr, Query);
+            }
+        } else if (uri.find("/logslist") == 0 || uri.find("/loglist") == 0) {
+            HandleLogsList(ostr);
+        } else if (uri.find("/natslogslist") == 0 || uri.find("/natsloglist") == 0) {
+            HandleNatsLogsList(ostr);
+        } else if (uri.find("/getlog") == 0) {
+            std::string id = ParseLogId(uri);
+            if (id.empty()) {
+                errorJson["error"] = "invalid or missing id";
+                ostr << errorJson.dump();
+            } else {
+                HandleGetLog(ostr, id);
+            }
+        } else if (uri.find("/natsgetlog") == 0) {
+            std::string id = ParseLogId(uri);
+            if (id.empty()) {
+                errorJson["error"] = "invalid or missing id";
+                ostr << errorJson.dump();
+            } else {
+                HandleNatsGetLog(ostr, id);
+            }
+        } else {
+            nlohmann::json errorJson;
+            errorJson["error"] = "unknown command";
+            ostr << errorJson.dump();
+        }
+    } catch (const std::exception& e) {
+        nlohmann::json errorJson;
+        errorJson["error"] = "internal error";
+        errorJson["details"] = e.what();
+        logger::log_error() << "Unhandled exception in handleRequest: " << e.what() << std::endl;
+        ostr << errorJson.dump();
+    } catch (...) {
+        nlohmann::json errorJson;
+        errorJson["error"] = "internal error";
+        logger::log_error() << "Unhandled unknown exception in handleRequest" << std::endl;
         ostr << errorJson.dump();
     }
 }
@@ -264,16 +317,23 @@ void FileRequestHandler::HandleStart(Poco::Net::HTTPServerRequest& request, std:
         start_subject += ID;
         logger::log() << "Received Start request with ID=" << ID << " (query=" << Query << ")" << std::endl;
 
-        nlohmann::json message = nlohmann::json::parse(body.str());
-        bool published = nats_manager_.Publish(start_subject, message);
+        try {
+            nlohmann::json message = nlohmann::json::parse(body.str());
+            bool published = nats_manager_.Publish(start_subject, message);
 
-        if (published) {
-            responseJson = GenerateResponse(Query, ID, Status::Ok, "BUFFERED");
-        } else {
+            if (published) {
+                responseJson = GenerateResponse(Query, ID, Status::Ok, "BUFFERED");
+            } else {
+                std::lock_guard<std::mutex> lock(state_mutex_);
+                RemovePairLocked(ID);
+                responseJson = GenerateResponse(Query, ID, Status::Error, "Failed to publish message to NATS");
+                logger::log_error() << "Failed to publish Start request with ID=" << ID << std::endl;
+            }
+        } catch (const std::exception& e) {
             std::lock_guard<std::mutex> lock(state_mutex_);
             RemovePairLocked(ID);
-            responseJson = GenerateResponse(Query, ID, Status::Error, "Failed to publish message to NATS");
-            logger::log_error() << "Failed to publish Start request with ID=" << ID << std::endl;
+            responseJson = GenerateResponse(Query, ID, Status::Error, "Invalid JSON body");
+            logger::log_error() << "Invalid JSON in Start request: " << e.what() << std::endl;
         }
     } else {
         responseJson["error"] = "Message is empty";
@@ -310,15 +370,23 @@ void FileRequestHandler::HandleState(std::ostream& ostr, int Query) {
         return;
     }
 
-    std::promise<nlohmann::json> promise;
-    auto future = promise.get_future();
+    auto promise = std::make_shared<std::promise<nlohmann::json>>();
+    auto done = std::make_shared<std::atomic<bool>>(false);
+    auto future = promise->get_future();
 
     auto sub = nats_manager_.Subscribe(
         state_response_subject,
-        [this, &promise, Query](const std::string& msg_subject, const nlohmann::json& message) mutable {
-            nlohmann::json state;
-            this->OnMessageState(msg_subject, message, state, Query);
-            promise.set_value(std::move(state));
+        [this, promise, done, Query](const std::string& msg_subject, const nlohmann::json& message) mutable {
+            if (done->exchange(true)) {
+                return;
+            }
+            try {
+                nlohmann::json state;
+                this->OnMessageState(msg_subject, message, state, Query);
+                promise->set_value(std::move(state));
+            } catch (const std::exception& e) {
+                TrySetPromiseError(promise, e);
+            }
             nats_manager_.Unsubscribe(msg_subject);  // unsubscribe right after we get our message
         });
 
@@ -367,12 +435,20 @@ void FileRequestHandler::HandleLogsList(std::ostream& ostr) {
         return;
     }
 
-    std::promise<nlohmann::json> promise;
-    auto future = promise.get_future();
+    auto promise = std::make_shared<std::promise<nlohmann::json>>();
+    auto done = std::make_shared<std::atomic<bool>>(false);
+    auto future = promise->get_future();
 
     auto sub = nats_manager_.Subscribe(
-        response_subject, [&promise, this](const std::string& msg_subject, const nlohmann::json& message) mutable {
-            promise.set_value(message);
+        response_subject, [promise, done, this](const std::string& msg_subject, const nlohmann::json& message) mutable {
+            if (done->exchange(true)) {
+                return;
+            }
+            try {
+                promise->set_value(message);
+            } catch (const std::exception& e) {
+                TrySetPromiseError(promise, e);
+            }
             nats_manager_.Unsubscribe(msg_subject);  // unsubscribe right after we get our message
         });
 
@@ -407,12 +483,20 @@ void FileRequestHandler::HandleGetLog(std::ostream& ostr, const std::string& id)
         return;
     }
 
-    std::promise<nlohmann::json> promise;
-    auto future = promise.get_future();
+    auto promise = std::make_shared<std::promise<nlohmann::json>>();
+    auto done = std::make_shared<std::atomic<bool>>(false);
+    auto future = promise->get_future();
 
     auto sub = nats_manager_.Subscribe(
-        response_subject, [&promise, this](const std::string& msg_subject, const nlohmann::json& message) mutable {
-            promise.set_value(message);
+        response_subject, [promise, done, this](const std::string& msg_subject, const nlohmann::json& message) mutable {
+            if (done->exchange(true)) {
+                return;
+            }
+            try {
+                promise->set_value(message);
+            } catch (const std::exception& e) {
+                TrySetPromiseError(promise, e);
+            }
             nats_manager_.Unsubscribe(msg_subject);  // unsubscribe right after we get our message
         });
 

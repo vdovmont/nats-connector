@@ -2,10 +2,12 @@
 
 #include <Poco/URI.h>
 
+#include <algorithm>
 #include <chrono>
 #include <fstream>
 #include <iomanip>
 #include <mutex>
+#include <vector>
 
 #include "logger.h"
 #include "nats_manager.h"
@@ -221,6 +223,8 @@ void FileRequestHandler::handleRequest(Poco::Net::HTTPServerRequest& request, Po
         }
     } else if (uri.find("/logslist") == 0 || uri.find("/loglist") == 0) {
         HandleLogsList(ostr);
+    } else if (uri.find("/natslogslist") == 0 || uri.find("/natsloglist") == 0) {
+        HandleNatsLogsList(ostr);
     } else if (uri.find("/getlog") == 0) {
         std::string id = ParseLogId(uri);
         if (id.empty()) {
@@ -228,6 +232,14 @@ void FileRequestHandler::handleRequest(Poco::Net::HTTPServerRequest& request, Po
             ostr << errorJson.dump();
         } else {
             HandleGetLog(ostr, id);
+        }
+    } else if (uri.find("/natsgetlog") == 0) {
+        std::string id = ParseLogId(uri);
+        if (id.empty()) {
+            errorJson["error"] = "invalid or missing id";
+            ostr << errorJson.dump();
+        } else {
+            HandleNatsGetLog(ostr, id);
         }
     } else {
         nlohmann::json errorJson;
@@ -423,6 +435,151 @@ void FileRequestHandler::HandleGetLog(std::ostream& ostr, const std::string& id)
 
     logger::log() << "Sent GetLog response for ID=" << id << std::endl;
     ostr << responseJson.dump();
+}
+
+void FileRequestHandler::HandleNatsLogsList(std::ostream& ostr) {
+    nlohmann::json responseJson;
+    try {
+        logger::log() << "Received NatsLogsList request" << std::endl;
+        const std::filesystem::path logs_dir("logs");
+        std::vector<std::string> files;
+        if (std::filesystem::exists(logs_dir)) {
+            std::error_code ec;
+            for (std::filesystem::recursive_directory_iterator
+                     it(logs_dir, std::filesystem::directory_options::skip_permission_denied, ec),
+                 end;
+                 it != end;
+                 it.increment(ec)) {
+                if (ec) {
+                    ec.clear();
+                    continue;
+                }
+                if (it->is_regular_file(ec)) {
+                    if (ec) {
+                        ec.clear();
+                        continue;
+                    }
+                    const auto name = it->path().stem().string();
+                    files.push_back(name);
+                }
+            }
+        }
+        std::sort(files.begin(), files.end(), std::greater<std::string>());
+        responseJson["files"] = files;
+        logger::log() << "Sent NatsLogsList response with " << files.size() << " files" << std::endl;
+    } catch (const std::exception& e) {
+        responseJson["error"] = e.what();
+        logger::log_error() << "Error in NatsLogsList: " << e.what() << std::endl;
+    }
+
+    ostr << responseJson.dump();
+}
+
+void FileRequestHandler::HandleNatsGetLog(std::ostream& ostr, const std::string& id) {
+    nlohmann::json responseJson;
+    try {
+        logger::log() << "Received NatsGetLog request with ID=" << id << std::endl;
+        const std::filesystem::path logs_dir("logs");
+        if (!std::filesystem::exists(logs_dir)) {
+            responseJson["error"] = "Logs directory not found";
+            logger::log() << "Sent NatsGetLog response for ID=" << id << " (logs dir missing)" << std::endl;
+            ostr << responseJson.dump();
+            return;
+        }
+
+        const std::string target_stem = std::filesystem::path(id).stem().string();
+        std::filesystem::path found_path;
+        std::filesystem::path found_json;
+        std::filesystem::path found_log;
+        std::error_code ec;
+        for (std::filesystem::recursive_directory_iterator
+                 it(logs_dir, std::filesystem::directory_options::skip_permission_denied, ec),
+             end;
+             it != end;
+             it.increment(ec)) {
+            if (ec) {
+                ec.clear();
+                continue;
+            }
+            if (it->is_regular_file(ec) && it->path().stem().string() == target_stem) {
+                const auto ext = it->path().extension().string();
+                if (ext == ".json") {
+                    found_json = it->path();
+                } else if (ext == ".log") {
+                    found_log = it->path();
+                } else if (found_path.empty()) {
+                    found_path = it->path();
+                }
+            }
+        }
+
+        if (!found_json.empty()) {
+            found_path = found_json;
+        } else if (!found_log.empty()) {
+            found_path = found_log;
+        }
+
+        if (found_path.empty()) {
+            responseJson["error"] = "Log file not found";
+            logger::log() << "Sent NatsGetLog response for ID=" << id << " (file not found)" << std::endl;
+            ostr << responseJson.dump();
+            return;
+        }
+
+        if (found_path.extension() == ".log") {
+            responseJson = PackLogFileToJson(found_path);
+            logger::log() << "Sent NatsGetLog response for ID=" << id << " (log packed)" << std::endl;
+            ostr << responseJson.dump();
+            return;
+        }
+
+        std::ifstream in_file(found_path);
+        if (!in_file.is_open()) {
+            responseJson["error"] = "Failed to open log file";
+            logger::log() << "Sent NatsGetLog response for ID=" << id << " (open failed)" << std::endl;
+            ostr << responseJson.dump();
+            return;
+        }
+
+        try {
+            in_file >> responseJson;
+        } catch (const std::exception& e) {
+            nlohmann::json error_json;
+            error_json["error"] = "Failed to parse log file as json";
+            error_json["details"] = e.what();
+            error_json["filename"] = found_path.filename().string();
+            responseJson = std::move(error_json);
+            logger::log() << "Sent NatsGetLog response for ID=" << id << " (json parse failed)" << std::endl;
+            ostr << responseJson.dump();
+            return;
+        }
+
+        logger::log() << "Sent NatsGetLog response for ID=" << id << std::endl;
+    } catch (const std::exception& e) {
+        responseJson["error"] = e.what();
+        logger::log_error() << "Error in NatsGetLog: " << e.what() << std::endl;
+    }
+
+    ostr << responseJson.dump();
+}
+
+nlohmann::json FileRequestHandler::PackLogFileToJson(const std::filesystem::path& log_path) {
+    nlohmann::json response;
+    response["filename"] = log_path.filename().string();
+    response["lines"] = nlohmann::json::array();
+
+    std::ifstream in_file(log_path);
+    if (!in_file.is_open()) {
+        response["error"] = "Failed to open log file";
+        return response;
+    }
+
+    std::string line;
+    while (std::getline(in_file, line)) {
+        response["lines"].push_back(line);
+    }
+
+    return response;
 }
 
 nlohmann::json FileRequestHandler::GenerateResponse(const int query,

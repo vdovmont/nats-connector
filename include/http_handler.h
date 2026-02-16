@@ -9,6 +9,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <filesystem>
 #include <fstream>
 #include <functional>
 #include <future>
@@ -52,6 +53,8 @@ class FileRequestHandler : public Poco::Net::HTTPRequestHandler {
     void HandleState(std::ostream& ostr, int ID);
     void HandleLogsList(std::ostream& ostr);
     void HandleGetLog(std::ostream& ostr, const std::string& id);
+    void HandleNatsLogsList(std::ostream& ostr);
+    void HandleNatsGetLog(std::ostream& ostr, const std::string& id);
     void WaitForResponse(uint64_t startup_epoch,
                          const std::string& response_subject,
                          const std::string& request_name,
@@ -60,6 +63,7 @@ class FileRequestHandler : public Poco::Net::HTTPRequestHandler {
                          const std::function<void()>& on_restart_cleanup,
                          nlohmann::json& response_json);
 
+    nlohmann::json PackLogFileToJson(const std::filesystem::path& log_path);
     nlohmann::json GenerateResponse(const int query,
                                     const std::string& ID,
                                     const enum Status status,

@@ -27,13 +27,13 @@ static std::string GetDateFileName() {
 
 static std::string CreateDateLogFilePath() {
     const std::string date_file = GetDateFileName();
-    const std::filesystem::path dir_path = std::filesystem::path("logs");
+    const std::filesystem::path dir_path = std::filesystem::path("logs/nats-connector");
     std::filesystem::create_directories(dir_path);
     return (dir_path / date_file).string();
 }
 
 static std::string CreateLatestLogFilePath() {
-    const std::filesystem::path dir_path = std::filesystem::path("logs");
+    const std::filesystem::path dir_path = std::filesystem::path("logs/nats-connector");
     std::filesystem::create_directories(dir_path);
     const std::filesystem::path latest_path = dir_path / "latest.log";
     return latest_path.string();

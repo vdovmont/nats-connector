@@ -66,6 +66,13 @@ bool FileRequestHandler::StartMathAliveWatcher(NatsManager& nats_manager) {
     return mathcore_subscription_active_;
 }
 
+void FileRequestHandler::ResetMathAliveWatcher() {
+    std::lock_guard<std::mutex> lock(health_mutex_);
+    mathcore_subscription_active_ = false;
+    mathcore_alive_.store(false, std::memory_order_relaxed);
+    last_mathcore_heartbeat_ = std::chrono::steady_clock::now();
+}
+
 bool FileRequestHandler::IsMathCoreAlive() {
     std::lock_guard<std::mutex> lock(health_mutex_);
     auto now = std::chrono::steady_clock::now();
@@ -311,7 +318,10 @@ void FileRequestHandler::HandleStart(Poco::Net::HTTPServerRequest& request, std:
     body << stream.rdbuf();
     nlohmann::json responseJson;
 
-    if (!IsMathCoreAlive()) {
+    if (!nats_manager_.IsConnected()) {
+        responseJson = GenerateErrorResponse(0, "NATS server is unavailable");
+        logger::log_error() << "Received Start request while NATS server is unavailable" << std::endl;
+    } else if (!IsMathCoreAlive()) {
         responseJson = GenerateErrorResponse(0, "MathCore is unavailable");
         logger::log_error() << "Received Start request while MathCore is unavailable" << std::endl;
     } else if (!body.str().empty()) {
@@ -364,6 +374,13 @@ void FileRequestHandler::HandleState(std::ostream& ostr, int Query) {
     std::string state_response_subject = "State.Response." + ID;
     uint64_t startup_epoch = mathcore_startup_epoch_.load(std::memory_order_relaxed);
     logger::log() << "Received State request with ID=" << ID << " (query=" << Query << ")" << std::endl;
+
+    if (!nats_manager_.IsConnected()) {
+        responseJson = GenerateResponse(Query, ID, Status::Error, "NATS server is unavailable");
+        logger::log_error() << "NATS server unavailable for State request ID=" << ID << std::endl;
+        ostr << responseJson.dump();
+        return;
+    }
 
     if (!IsMathCoreAlive()) {
         responseJson = GenerateResponse(Query, ID, Status::Error, "MathCore is unavailable");
@@ -432,6 +449,13 @@ void FileRequestHandler::HandleLogsList(std::ostream& ostr) {
     const std::string response_subject = "LogsList.Response";
     logger::log() << "Received LogsList request" << std::endl;
 
+    if (!nats_manager_.IsConnected()) {
+        responseJson = GenerateErrorResponse(0, "NATS server is unavailable");
+        logger::log_error() << "NATS server unavailable for LogsList request" << std::endl;
+        ostr << responseJson.dump();
+        return;
+    }
+
     if (!IsMathCoreAlive()) {
         responseJson = GenerateErrorResponse(0, "MathCore is unavailable");
         logger::log_error() << "MathCore unavailable for LogsList request" << std::endl;
@@ -479,6 +503,13 @@ void FileRequestHandler::HandleGetLog(std::ostream& ostr, const std::string& id)
     const std::string request_subject = "GetLog.Request." + id;
     const std::string response_subject = "GetLog.Response." + id;
     logger::log() << "Received GetLog request with ID=" << id << std::endl;
+
+    if (!nats_manager_.IsConnected()) {
+        responseJson = GenerateErrorResponse(0, "NATS server is unavailable");
+        logger::log_error() << "NATS server unavailable for GetLog request ID=" << id << std::endl;
+        ostr << responseJson.dump();
+        return;
+    }
 
     if (!IsMathCoreAlive()) {
         responseJson = GenerateErrorResponse(0, "MathCore is unavailable");
@@ -787,18 +818,21 @@ int ServerApp::main(const std::vector<std::string>&) {
     int port = 9000;
 
     NatsManager nats_manager;
-    bool status = nats_manager.Connect(nats_server_url);
-    if (!status) {
-        return Application::EXIT_SOFTWARE;
-    }
-    FileRequestHandler::StartMathAliveWatcher(nats_manager);
-
     Poco::Net::ServerSocket svs(port);
     Poco::Net::HTTPServer srv(new FileRequestHandlerFactory(nats_manager), svs, new Poco::Net::HTTPServerParams);
     srv.start();
     logger::log() << "HTTP Server started on port " << port << std::endl;
+    nats_manager.StartReconnectLoop(
+        nats_server_url,
+        [&]() {
+            logger::log() << "Connected to NATS server at " << nats_server_url << std::endl;
+            FileRequestHandler::StartMathAliveWatcher(nats_manager);
+        },
+        [&]() { FileRequestHandler::ResetMathAliveWatcher(); });
+
     waitForTerminationRequest();  // wait for CTRL-C
     srv.stop();
+    nats_manager.StopReconnectLoop();
 
     return Application::EXIT_OK;
 }

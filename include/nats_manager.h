@@ -1,8 +1,11 @@
 #pragma once
 
+#include <atomic>
 #include <functional>
 #include <iostream>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <unordered_map>
 
 #include "nats.h"
@@ -21,6 +24,12 @@ class NatsManager {
     ~NatsManager();
 
     bool Connect(const std::string& server_url);
+    bool IsConnected();
+    bool CheckConnection();
+    void StartReconnectLoop(const std::string& server_url,
+                            std::function<void()> on_connected = {},
+                            std::function<void()> on_disconnected = {});
+    void StopReconnectLoop();
     bool Publish(const std::string& subject, const nlohmann::json& message);
     bool Subscribe(const std::string& subject,
                    std::function<void(const std::string& subject, const nlohmann::json& message)> handler);
@@ -31,7 +40,14 @@ class NatsManager {
     natsConnection* get_connection() const { return conn_; }
 
   private:
+    void DisconnectLocked();
+
     natsConnection* conn_;
+    std::atomic<bool> connected_;
+    mutable std::mutex conn_mutex_;
+    std::atomic<bool> stop_reconnect_{false};
+    std::thread reconnect_thread_;
+    std::string server_url_;
     std::unordered_map<std::string, natsSubscription*> subs_;
     std::unordered_map<natsSubscription*, std::function<void(const std::string&, const nlohmann::json&)>> callbacks_;
 

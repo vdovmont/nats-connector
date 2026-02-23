@@ -37,6 +37,7 @@ class FileRequestHandler : public Poco::Net::HTTPRequestHandler {
 
     // Subscribe to MathCore heartbeat channel; should be called once during startup.
     static bool StartMathAliveWatcher(NatsManager& nats_manager);
+    static void ResetMathAliveWatcher();
     static bool IsMathCoreAlive();
 
   private:

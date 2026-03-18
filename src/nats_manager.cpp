@@ -14,17 +14,23 @@ bool IsConnectionError(natsStatus status) {
 NatsManager::NatsManager() : conn_(nullptr), connected_(false) {}
 
 NatsManager::~NatsManager() {
+    destroying_.store(true, std::memory_order_release);
     StopReconnectLoop();
     Disconnect();
 }
 
 bool NatsManager::Connect(const std::string& server_url) {
-    std::lock_guard<std::mutex> lock(conn_mutex_);
+    std::unique_lock<std::mutex> lock(conn_mutex_);
     if (connected_.load(std::memory_order_acquire) && conn_) {
         return true;
     }
     if (conn_) {
-        DisconnectLocked();
+        std::vector<natsSubscription*> subs_to_destroy;
+        natsConnection* conn_to_destroy = nullptr;
+        DisconnectLocked(subs_to_destroy, conn_to_destroy);
+        lock.unlock();
+        FinalizeDisconnect(subs_to_destroy, conn_to_destroy);
+        lock.lock();
     }
     natsStatus status = natsConnection_ConnectTo(&conn_, server_url.c_str());
     if (status != NATS_OK) {
@@ -38,7 +44,7 @@ bool NatsManager::Connect(const std::string& server_url) {
 bool NatsManager::IsConnected() { return CheckConnection(); }
 
 bool NatsManager::CheckConnection() {
-    std::lock_guard<std::mutex> lock(conn_mutex_);
+    std::unique_lock<std::mutex> lock(conn_mutex_);
     if (!conn_) {
         connected_.store(false, std::memory_order_release);
         return false;
@@ -47,7 +53,11 @@ bool NatsManager::CheckConnection() {
     if (status != NATS_CONN_STATUS_CONNECTED) {
         connected_.store(false, std::memory_order_release);
         if (status == NATS_CONN_STATUS_CLOSED) {
-            DisconnectLocked();
+            std::vector<natsSubscription*> subs_to_destroy;
+            natsConnection* conn_to_destroy = nullptr;
+            DisconnectLocked(subs_to_destroy, conn_to_destroy);
+            lock.unlock();
+            FinalizeDisconnect(subs_to_destroy, conn_to_destroy);
         }
         return false;
     }
@@ -97,7 +107,7 @@ void NatsManager::StopReconnectLoop() {
 }
 
 bool NatsManager::Publish(const std::string& subject, const nlohmann::json& message) {
-    std::lock_guard<std::mutex> lock(conn_mutex_);
+    std::unique_lock<std::mutex> lock(conn_mutex_);
     if (!connected_.load(std::memory_order_acquire) || !conn_) {
         logger::log_error() << "Not connected to NATS server.\n";
         return false;
@@ -109,7 +119,11 @@ bool NatsManager::Publish(const std::string& subject, const nlohmann::json& mess
         logger::log_error() << "Publish failed: " << natsStatus_GetText(status) << "\n";
         if (IsConnectionError(status)) {
             connected_.store(false, std::memory_order_release);
-            DisconnectLocked();
+            std::vector<natsSubscription*> subs_to_destroy;
+            natsConnection* conn_to_destroy = nullptr;
+            DisconnectLocked(subs_to_destroy, conn_to_destroy);
+            lock.unlock();
+            FinalizeDisconnect(subs_to_destroy, conn_to_destroy);
         }
         return false;
     }
@@ -118,7 +132,7 @@ bool NatsManager::Publish(const std::string& subject, const nlohmann::json& mess
 
 bool NatsManager::Subscribe(const std::string& subject,
                             std::function<void(const std::string&, const nlohmann::json&)> handler) {
-    std::lock_guard<std::mutex> lock(conn_mutex_);
+    std::unique_lock<std::mutex> lock(conn_mutex_);
     if (!connected_.load(std::memory_order_acquire) || !conn_) {
         logger::log_error() << "Not connected to NATS server.\n";
         return false;
@@ -134,7 +148,11 @@ bool NatsManager::Subscribe(const std::string& subject,
         logger::log_error() << "Subscribe failed: " << natsStatus_GetText(status) << "\n";
         if (IsConnectionError(status)) {
             connected_.store(false, std::memory_order_release);
-            DisconnectLocked();
+            std::vector<natsSubscription*> subs_to_destroy;
+            natsConnection* conn_to_destroy = nullptr;
+            DisconnectLocked(subs_to_destroy, conn_to_destroy);
+            lock.unlock();
+            FinalizeDisconnect(subs_to_destroy, conn_to_destroy);
         }
         return false;
     }
@@ -146,6 +164,10 @@ bool NatsManager::Subscribe(const std::string& subject,
 
 bool NatsManager::Unsubscribe(const std::string& subject) {
     std::lock_guard<std::mutex> lock(conn_mutex_);
+    if (destroying_.load(std::memory_order_acquire)) {
+        return false;
+    }
+
     auto it = subs_.find(subject);
     if (it == subs_.end()) {
         return false;
@@ -168,6 +190,23 @@ void NatsManager::Callback(natsConnection* nc, natsSubscription* sub, natsMsg* m
     NatsManager* self = static_cast<NatsManager*>(closure);
 
     if (!self) return;
+
+    {
+        std::unique_lock<std::mutex> callback_lock(self->callback_mutex_);
+        if (self->destroying_.load(std::memory_order_acquire)) {
+            return;
+        }
+        ++self->active_callbacks_;
+    }
+
+    struct CallbackGuard {
+        NatsManager* self;
+        ~CallbackGuard() {
+            std::lock_guard<std::mutex> lock(self->callback_mutex_);
+            --self->active_callbacks_;
+            self->callback_cv_.notify_all();
+        }
+    } callback_guard{self};
 
     std::function<void(const std::string&, const nlohmann::json&)> handler;
     {
@@ -194,24 +233,45 @@ void NatsManager::Callback(natsConnection* nc, natsSubscription* sub, natsMsg* m
 }
 
 void NatsManager::Disconnect() {
-    std::lock_guard<std::mutex> lock(conn_mutex_);
-    DisconnectLocked();
+    std::vector<natsSubscription*> subs_to_destroy;
+    natsConnection* conn_to_destroy = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(conn_mutex_);
+        DisconnectLocked(subs_to_destroy, conn_to_destroy);
+    }
+    FinalizeDisconnect(subs_to_destroy, conn_to_destroy);
 }
 
-void NatsManager::DisconnectLocked() {
-    if (conn_) {
-        natsConnection_Destroy(conn_);
-        conn_ = nullptr;
-    }
+void NatsManager::DisconnectLocked(std::vector<natsSubscription*>& subs_to_destroy, natsConnection*& conn_to_destroy) {
     connected_.store(false, std::memory_order_release);
-    // Unsubscribe all subscriptions
     for (auto& pair : callbacks_) {
         natsSubscription* sub = pair.first;
         if (sub) {
             natsSubscription_Unsubscribe(sub);  // stop receiving messages
-            natsSubscription_Destroy(sub);      // free the subscription object
+            subs_to_destroy.push_back(sub);
         }
     }
     callbacks_.clear();
     subs_.clear();
+    conn_to_destroy = conn_;
+    conn_ = nullptr;
+}
+
+void NatsManager::FinalizeDisconnect(std::vector<natsSubscription*>& subs_to_destroy, natsConnection* conn_to_destroy) {
+    if (destroying_.load(std::memory_order_acquire)) {
+        WaitForCallbacks();
+    }
+
+    for (natsSubscription* sub : subs_to_destroy) {
+        natsSubscription_Destroy(sub);
+    }
+
+    if (conn_to_destroy) {
+        natsConnection_Destroy(conn_to_destroy);
+    }
+}
+
+void NatsManager::WaitForCallbacks() {
+    std::unique_lock<std::mutex> lock(callback_mutex_);
+    callback_cv_.wait(lock, [this]() { return active_callbacks_ == 0; });
 }

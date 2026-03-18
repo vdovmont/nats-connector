@@ -1,12 +1,14 @@
 #pragma once
 
 #include <atomic>
+#include <condition_variable>
 #include <functional>
 #include <iostream>
 #include <mutex>
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <vector>
 
 #include "nats.h"
 #include "nlohmann/json.hpp"
@@ -40,11 +42,17 @@ class NatsManager {
     natsConnection* get_connection() const { return conn_; }
 
   private:
-    void DisconnectLocked();
+    void DisconnectLocked(std::vector<natsSubscription*>& subs_to_destroy, natsConnection*& conn_to_destroy);
+    void FinalizeDisconnect(std::vector<natsSubscription*>& subs_to_destroy, natsConnection* conn_to_destroy);
+    void WaitForCallbacks();
 
     natsConnection* conn_;
     std::atomic<bool> connected_;
     mutable std::mutex conn_mutex_;
+    std::atomic<bool> destroying_{false};
+    std::mutex callback_mutex_;
+    std::condition_variable callback_cv_;
+    size_t active_callbacks_{0};
     std::atomic<bool> stop_reconnect_{false};
     std::thread reconnect_thread_;
     std::string server_url_;

@@ -395,21 +395,22 @@ void FileRequestHandler::HandleState(std::ostream& ostr, int Query) {
     auto done = std::make_shared<std::atomic<bool>>(false);
     auto future = promise->get_future();
 
-    auto sub = nats_manager_.Subscribe(
-        state_response_subject,
-        [this, promise, done, Query](const std::string& msg_subject, const nlohmann::json& message) mutable {
-            if (done->exchange(true)) {
-                return;
-            }
-            try {
-                nlohmann::json state;
-                this->OnMessageState(msg_subject, message, state, Query);
-                promise->set_value(std::move(state));
-            } catch (const std::exception& e) {
-                TrySetPromiseError(promise, e);
-            }
-            nats_manager_.Unsubscribe(msg_subject);  // unsubscribe right after we get our message
-        });
+    auto sub =
+        nats_manager_.Subscribe(state_response_subject,
+                                [promise, done, Query, nats = &nats_manager_](const std::string& msg_subject,
+                                                                              const nlohmann::json& message) mutable {
+                                    if (done->exchange(true)) {
+                                        return;
+                                    }
+                                    try {
+                                        nlohmann::json state;
+                                        FileRequestHandler::OnMessageState(msg_subject, message, state, Query);
+                                        promise->set_value(std::move(state));
+                                    } catch (const std::exception& e) {
+                                        TrySetPromiseError(promise, e);
+                                    }
+                                    nats->Unsubscribe(msg_subject);  // unsubscribe right after we get our message
+                                });
 
     if (!sub) {
         responseJson = GenerateResponse(Query, ID, Status::Error, "Failed to subscribe to NATS subject");
@@ -419,10 +420,10 @@ void FileRequestHandler::HandleState(std::ostream& ostr, int Query) {
             nats_manager_.Unsubscribe(state_response_subject);
             responseJson = GenerateResponse(Query, ID, Status::Error, "Failed to publish message to NATS");
         } else {
-            auto make_error = [Query, &ID, this](const std::string& message) {
+            auto make_error = [Query, &ID](const std::string& message) {
                 return GenerateResponse(Query, ID, Status::Error, message);
             };
-            auto on_restart_cleanup = [this, &ID]() {
+            auto on_restart_cleanup = [&ID]() {
                 std::lock_guard<std::mutex> lock(state_mutex_);
                 EnsureStateLoadedLocked();
                 RemovePairLocked(ID);
@@ -468,7 +469,8 @@ void FileRequestHandler::HandleLogsList(std::ostream& ostr) {
     auto future = promise->get_future();
 
     auto sub = nats_manager_.Subscribe(
-        response_subject, [promise, done, this](const std::string& msg_subject, const nlohmann::json& message) mutable {
+        response_subject,
+        [promise, done, nats = &nats_manager_](const std::string& msg_subject, const nlohmann::json& message) mutable {
             if (done->exchange(true)) {
                 return;
             }
@@ -477,7 +479,7 @@ void FileRequestHandler::HandleLogsList(std::ostream& ostr) {
             } catch (const std::exception& e) {
                 TrySetPromiseError(promise, e);
             }
-            nats_manager_.Unsubscribe(msg_subject);  // unsubscribe right after we get our message
+            nats->Unsubscribe(msg_subject);  // unsubscribe right after we get our message
         });
 
     if (!sub) {
@@ -486,7 +488,7 @@ void FileRequestHandler::HandleLogsList(std::ostream& ostr) {
         nats_manager_.Unsubscribe(response_subject);
         responseJson = GenerateErrorResponse(0, "Failed to publish message to NATS");
     } else {
-        auto make_error = [this](const std::string& message) {
+        auto make_error = [](const std::string& message) {
             return GenerateErrorResponse(0, message);
         };
         logger::log() << "Waiting for MathCore response to LogsList request" << std::endl;
@@ -523,7 +525,8 @@ void FileRequestHandler::HandleGetLog(std::ostream& ostr, const std::string& id)
     auto future = promise->get_future();
 
     auto sub = nats_manager_.Subscribe(
-        response_subject, [promise, done, this](const std::string& msg_subject, const nlohmann::json& message) mutable {
+        response_subject,
+        [promise, done, nats = &nats_manager_](const std::string& msg_subject, const nlohmann::json& message) mutable {
             if (done->exchange(true)) {
                 return;
             }
@@ -532,7 +535,7 @@ void FileRequestHandler::HandleGetLog(std::ostream& ostr, const std::string& id)
             } catch (const std::exception& e) {
                 TrySetPromiseError(promise, e);
             }
-            nats_manager_.Unsubscribe(msg_subject);  // unsubscribe right after we get our message
+            nats->Unsubscribe(msg_subject);  // unsubscribe right after we get our message
         });
 
     if (!sub) {
@@ -543,7 +546,7 @@ void FileRequestHandler::HandleGetLog(std::ostream& ostr, const std::string& id)
             nats_manager_.Unsubscribe(response_subject);
             responseJson = GenerateErrorResponse(0, "Failed to publish message to NATS");
         } else {
-            auto make_error = [this](const std::string& message) {
+            auto make_error = [](const std::string& message) {
                 return GenerateErrorResponse(0, message);
             };
             logger::log() << "Waiting for MathCore response to GetLog request ID=" << id << std::endl;

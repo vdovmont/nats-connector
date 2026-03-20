@@ -45,7 +45,7 @@ class FileRequestHandler : public Poco::Net::HTTPRequestHandler {
     static void HandleMathCoreStartup();
 
     std::string GenerateID();
-    std::string GetID(int Query);
+    static std::string GetID(int Query);
     int ParseQuery(std::string& uri);
     std::string ParseLogId(const std::string& uri);
     int NextQuery(const std::string& ID);
@@ -65,20 +65,20 @@ class FileRequestHandler : public Poco::Net::HTTPRequestHandler {
                          nlohmann::json& response_json);
 
     nlohmann::json PackLogFileToJson(const std::filesystem::path& log_path);
-    nlohmann::json GenerateResponse(const int query,
-                                    const std::string& ID,
-                                    const enum Status status,
-                                    const std::string& desc);
-    nlohmann::json GenerateErrorResponse(const int query, const std::string& desc);
-    void OnMessageState(const std::string& msg_subject,
-                        const nlohmann::json& message,
-                        nlohmann::json& state,
-                        const int Query);
+    static nlohmann::json GenerateResponse(const int query,
+                                           const std::string& ID,
+                                           const enum Status status,
+                                           const std::string& desc);
+    static nlohmann::json GenerateErrorResponse(const int query, const std::string& desc);
+    static void OnMessageState(const std::string& msg_subject,
+                               const nlohmann::json& message,
+                               nlohmann::json& state,
+                               const int Query);
 
-    void EnsureStateLoadedLocked();
+    static void EnsureStateLoadedLocked();
     static void PersistStateLocked();
-    void RemovePairLocked(const std::string& id);
-    void RemovePersistedPairLocked(const std::string& id);
+    static void RemovePairLocked(const std::string& id);
+    static void RemovePersistedPairLocked(const std::string& id);
 
     NatsManager& nats_manager_;
     static int query_number_;

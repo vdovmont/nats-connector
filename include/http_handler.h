@@ -46,14 +46,22 @@ class FileRequestHandler : public Poco::Net::HTTPRequestHandler {
 
     std::string GenerateID();
     static std::string GetID(int Query);
+    static int GetQueryByID(const std::string& ID);
+    static int GetLastQueryNumber();
+    static std::string FormatSystemTime(const std::chrono::system_clock::time_point& time_point);
     int ParseQuery(std::string& uri);
     std::string ParseLogId(const std::string& uri);
+    std::string ParseId(const std::string& uri);
+    int ParseQueue(const std::string& uri);
+    nlohmann::json ParseLogsListOptions(const std::string& uri);
     int NextQuery(const std::string& ID);
 
     void HandleStart(Poco::Net::HTTPServerRequest& request, std::ostream& ostr);
     void HandleState(std::ostream& ostr, int ID);
-    void HandleLogsList(std::ostream& ostr);
+    void HandleLogsList(std::ostream& ostr, const nlohmann::json& request_options);
     void HandleGetLog(std::ostream& ostr, const std::string& id);
+    void HandleGetQueue(std::ostream& ostr);
+    void HandleStopCalculation(std::ostream& ostr, const std::string& id);
     void HandleNatsLogsList(std::ostream& ostr);
     void HandleNatsGetLog(std::ostream& ostr, const std::string& id);
     void WaitForResponse(uint64_t startup_epoch,
@@ -70,6 +78,7 @@ class FileRequestHandler : public Poco::Net::HTTPRequestHandler {
                                            const enum Status status,
                                            const std::string& desc);
     static nlohmann::json GenerateErrorResponse(const int query, const std::string& desc);
+    static void AddQueueNumbersToGetQueueResponse(nlohmann::json& response);
     static void OnMessageState(const std::string& msg_subject,
                                const nlohmann::json& message,
                                nlohmann::json& state,
@@ -87,6 +96,7 @@ class FileRequestHandler : public Poco::Net::HTTPRequestHandler {
     static std::mutex state_mutex_;
     static bool state_loaded_;
     static const std::string kStateFilePath;
+    static const std::chrono::system_clock::time_point application_start_time_;
 
     static std::atomic<bool> mathcore_alive_;
     static std::atomic<uint64_t> mathcore_startup_epoch_;

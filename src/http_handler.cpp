@@ -3,6 +3,7 @@
 #include <Poco/URI.h>
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <fstream>
 #include <iomanip>
@@ -36,6 +37,8 @@ std::unordered_map<std::string, int> FileRequestHandler::persisted_id_query_map_
 std::mutex FileRequestHandler::state_mutex_;
 bool FileRequestHandler::state_loaded_ = false;
 const std::string FileRequestHandler::kStateFilePath = "query_state.json";
+const std::chrono::system_clock::time_point FileRequestHandler::application_start_time_ =
+    std::chrono::system_clock::now();
 std::atomic<bool> FileRequestHandler::mathcore_alive_{true};
 std::atomic<uint64_t> FileRequestHandler::mathcore_startup_epoch_{0};
 std::chrono::steady_clock::time_point FileRequestHandler::last_mathcore_heartbeat_ = std::chrono::steady_clock::now();
@@ -147,6 +150,36 @@ std::string FileRequestHandler::GetID(int Query) {
     return "";
 }
 
+int FileRequestHandler::GetQueryByID(const std::string& ID) {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    EnsureStateLoadedLocked();
+    auto it = id_query_map_.find(ID);
+    if (it == id_query_map_.end()) {
+        return 0;
+    }
+    return it->second;
+}
+
+int FileRequestHandler::GetLastQueryNumber() {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    EnsureStateLoadedLocked();
+    return query_number_;
+}
+
+std::string FileRequestHandler::FormatSystemTime(const std::chrono::system_clock::time_point& time_point) {
+    auto time_t_value = std::chrono::system_clock::to_time_t(time_point);
+    std::tm timeinfo{};
+#if defined(_WIN32)
+    localtime_s(&timeinfo, &time_t_value);
+#else
+    localtime_r(&time_t_value, &timeinfo);
+#endif
+
+    std::ostringstream oss;
+    oss << std::put_time(&timeinfo, "%Y-%m-%d %H:%M:%S");
+    return oss.str();
+}
+
 int FileRequestHandler::ParseQuery(std::string& uri) {
     Poco::URI::QueryParameters params;
     try {
@@ -188,6 +221,76 @@ std::string FileRequestHandler::ParseLogId(const std::string& uri) {
     }
 
     return "";
+}
+
+std::string FileRequestHandler::ParseId(const std::string& uri) {
+    Poco::URI::QueryParameters params;
+    try {
+        Poco::URI parsedUri(uri);
+        params = parsedUri.getQueryParameters();
+    } catch (const std::exception& e) {
+        logger::log_error() << "Failed to parse URI for id: " << e.what() << std::endl;
+        return "";
+    }
+
+    for (const auto& p : params) {
+        if (p.first == "id") {
+            return p.second;
+        }
+    }
+
+    return "";
+}
+
+int FileRequestHandler::ParseQueue(const std::string& uri) {
+    Poco::URI::QueryParameters params;
+    try {
+        Poco::URI parsedUri(uri);
+        params = parsedUri.getQueryParameters();
+    } catch (const std::exception& e) {
+        logger::log_error() << "Failed to parse URI for queue: " << e.what() << std::endl;
+        return 0;
+    }
+
+    for (const auto& p : params) {
+        if (p.first == "queue" || p.first == "numTicket" || p.first == "num") {
+            try {
+                return std::stoi(p.second);
+            } catch (const std::exception&) {
+                return 0;
+            }
+        }
+    }
+
+    return 0;
+}
+
+nlohmann::json FileRequestHandler::ParseLogsListOptions(const std::string& uri) {
+    nlohmann::json options = {{"sort", "name"}, {"order", "desc"}};
+    Poco::URI::QueryParameters params;
+    try {
+        Poco::URI parsedUri(uri);
+        params = parsedUri.getQueryParameters();
+    } catch (const std::exception& e) {
+        logger::log_error() << "Failed to parse URI for logslist options: " << e.what() << std::endl;
+        return {{"error", "invalid logslist parameters"}};
+    }
+
+    for (const auto& p : params) {
+        if (p.first == "sort") {
+            if (p.second != "name" && p.second != "date") {
+                return {{"error", "invalid sort value"}};
+            }
+            options["sort"] = p.second;
+        } else if (p.first == "order") {
+            if (p.second != "asc" && p.second != "desc") {
+                return {{"error", "invalid order value"}};
+            }
+            options["order"] = p.second;
+        }
+    }
+
+    return options;
 }
 
 int FileRequestHandler::NextQuery(const std::string& ID) {
@@ -274,7 +377,12 @@ void FileRequestHandler::handleRequest(Poco::Net::HTTPServerRequest& request, Po
                 HandleState(ostr, Query);
             }
         } else if (uri.find("/logslist") == 0 || uri.find("/loglist") == 0) {
-            HandleLogsList(ostr);
+            nlohmann::json request_options = ParseLogsListOptions(uri);
+            if (request_options.contains("error")) {
+                ostr << request_options.dump();
+            } else {
+                HandleLogsList(ostr, request_options);
+            }
         } else if (uri.find("/natslogslist") == 0 || uri.find("/natsloglist") == 0) {
             HandleNatsLogsList(ostr);
         } else if (uri.find("/getlog") == 0) {
@@ -285,6 +393,20 @@ void FileRequestHandler::handleRequest(Poco::Net::HTTPServerRequest& request, Po
             } else {
                 HandleGetLog(ostr, id);
             }
+        } else if (uri.find("/getqueue") == 0) {
+            HandleGetQueue(ostr);
+        } else if (uri.find("/stopcalculation") == 0) {
+            std::string id = ParseId(uri);
+            if (id.empty()) {
+                int queue = ParseQueue(uri);
+                id = GetID(queue);
+                if (queue == 0 || id.empty()) {
+                    errorJson["error"] = "invalid or missing id/queue";
+                    ostr << errorJson.dump();
+                    return;
+                }
+            }
+            HandleStopCalculation(ostr, id);
         } else if (uri.find("/natsgetlog") == 0) {
             std::string id = ParseLogId(uri);
             if (id.empty()) {
@@ -443,12 +565,13 @@ void FileRequestHandler::HandleState(std::ostream& ostr, int Query) {
     ostr << responseJson.dump();
 }
 
-void FileRequestHandler::HandleLogsList(std::ostream& ostr) {
+void FileRequestHandler::HandleLogsList(std::ostream& ostr, const nlohmann::json& request_options) {
     nlohmann::json responseJson;
     uint64_t startup_epoch = mathcore_startup_epoch_.load(std::memory_order_relaxed);
     const std::string request_subject = "LogsList.Request";
     const std::string response_subject = "LogsList.Response";
-    logger::log() << "Received LogsList request" << std::endl;
+    logger::log() << "Received LogsList request sort=" << request_options.value("sort", "name")
+                  << " order=" << request_options.value("order", "desc") << std::endl;
 
     if (!nats_manager_.IsConnected()) {
         responseJson = GenerateErrorResponse(0, "NATS server is unavailable");
@@ -484,7 +607,7 @@ void FileRequestHandler::HandleLogsList(std::ostream& ostr) {
 
     if (!sub) {
         responseJson = GenerateErrorResponse(0, "Failed to subscribe to NATS subject");
-    } else if (!nats_manager_.Publish(request_subject, nlohmann::json::object())) {
+    } else if (!nats_manager_.Publish(request_subject, request_options)) {
         nats_manager_.Unsubscribe(response_subject);
         responseJson = GenerateErrorResponse(0, "Failed to publish message to NATS");
     } else {
@@ -556,6 +679,132 @@ void FileRequestHandler::HandleGetLog(std::ostream& ostr, const std::string& id)
     }
 
     logger::log() << "Sent GetLog response for ID=" << id << std::endl;
+    ostr << responseJson.dump();
+}
+
+void FileRequestHandler::HandleGetQueue(std::ostream& ostr) {
+    nlohmann::json responseJson;
+    uint64_t startup_epoch = mathcore_startup_epoch_.load(std::memory_order_relaxed);
+    const std::string request_subject = "GetQueue.Request";
+    const std::string response_subject = "GetQueue.Response";
+    logger::log() << "Received GetQueue request" << std::endl;
+
+    if (!nats_manager_.IsConnected()) {
+        responseJson = GenerateErrorResponse(0, "NATS server is unavailable");
+        logger::log_error() << "NATS server unavailable for GetQueue request" << std::endl;
+        ostr << responseJson.dump();
+        return;
+    }
+
+    if (!IsMathCoreAlive()) {
+        responseJson = GenerateErrorResponse(0, "MathCore is unavailable");
+        logger::log_error() << "MathCore unavailable for GetQueue request" << std::endl;
+        ostr << responseJson.dump();
+        return;
+    }
+
+    auto promise = std::make_shared<std::promise<nlohmann::json>>();
+    auto done = std::make_shared<std::atomic<bool>>(false);
+    auto future = promise->get_future();
+
+    auto sub = nats_manager_.Subscribe(
+        response_subject,
+        [promise, done, nats = &nats_manager_](const std::string& msg_subject, const nlohmann::json& message) mutable {
+            if (done->exchange(true)) {
+                return;
+            }
+            try {
+                promise->set_value(message);
+            } catch (const std::exception& e) {
+                TrySetPromiseError(promise, e);
+            }
+            nats->Unsubscribe(msg_subject);
+        });
+
+    if (!sub) {
+        responseJson = GenerateErrorResponse(0, "Failed to subscribe to NATS subject");
+    } else if (!nats_manager_.Publish(request_subject, nlohmann::json::object())) {
+        nats_manager_.Unsubscribe(response_subject);
+        responseJson = GenerateErrorResponse(0, "Failed to publish message to NATS");
+    } else {
+        auto make_error = [](const std::string& message) {
+            return GenerateErrorResponse(0, message);
+        };
+        logger::log() << "Waiting for MathCore response to GetQueue request" << std::endl;
+        WaitForResponse(startup_epoch, response_subject, "GetQueue request", future, make_error, nullptr, responseJson);
+    }
+
+    AddQueueNumbersToGetQueueResponse(responseJson);
+    responseJson["0. " + FormatSystemTime(std::chrono::system_clock::now())] = "Current time";
+    responseJson["1. " + FormatSystemTime(application_start_time_)] = "nats-connector restart time";
+    responseJson["Last nats-connector queue number"] = GetLastQueryNumber();
+
+    logger::log() << "Sent GetQueue response" << std::endl;
+    ostr << responseJson.dump();
+}
+
+void FileRequestHandler::HandleStopCalculation(std::ostream& ostr, const std::string& id) {
+    nlohmann::json responseJson;
+    uint64_t startup_epoch = mathcore_startup_epoch_.load(std::memory_order_relaxed);
+    const std::string request_subject = "StopCalculation.Request." + id;
+    const std::string response_subject = "StopCalculation.Response." + id;
+    logger::log() << "Received StopCalculation request with ID=" << id << std::endl;
+
+    if (!nats_manager_.IsConnected()) {
+        responseJson = GenerateErrorResponse(0, "NATS server is unavailable");
+        logger::log_error() << "NATS server unavailable for StopCalculation request ID=" << id << std::endl;
+        ostr << responseJson.dump();
+        return;
+    }
+
+    if (!IsMathCoreAlive()) {
+        responseJson = GenerateErrorResponse(0, "MathCore is unavailable");
+        logger::log_error() << "MathCore unavailable for StopCalculation request ID=" << id << std::endl;
+        ostr << responseJson.dump();
+        return;
+    }
+
+    auto promise = std::make_shared<std::promise<nlohmann::json>>();
+    auto done = std::make_shared<std::atomic<bool>>(false);
+    auto future = promise->get_future();
+
+    auto sub = nats_manager_.Subscribe(
+        response_subject,
+        [promise, done, nats = &nats_manager_](const std::string& msg_subject, const nlohmann::json& message) mutable {
+            if (done->exchange(true)) {
+                return;
+            }
+            try {
+                promise->set_value(message);
+            } catch (const std::exception& e) {
+                TrySetPromiseError(promise, e);
+            }
+            nats->Unsubscribe(msg_subject);
+        });
+
+    if (!sub) {
+        responseJson = GenerateErrorResponse(0, "Failed to subscribe to NATS subject");
+    } else {
+        nlohmann::json request = {{"id", id}};
+        if (!nats_manager_.Publish(request_subject, request)) {
+            nats_manager_.Unsubscribe(response_subject);
+            responseJson = GenerateErrorResponse(0, "Failed to publish message to NATS");
+        } else {
+            auto make_error = [](const std::string& message) {
+                return GenerateErrorResponse(0, message);
+            };
+            logger::log() << "Waiting for MathCore response to StopCalculation request ID=" << id << std::endl;
+            WaitForResponse(startup_epoch,
+                            response_subject,
+                            "StopCalculation request ID=" + id,
+                            future,
+                            make_error,
+                            nullptr,
+                            responseJson);
+        }
+    }
+
+    logger::log() << "Sent StopCalculation response for ID=" << id << std::endl;
     ostr << responseJson.dump();
 }
 
@@ -720,6 +969,36 @@ nlohmann::json FileRequestHandler::GenerateResponse(const int query,
 
 nlohmann::json FileRequestHandler::GenerateErrorResponse(const int query, const std::string& desc) {
     return GenerateResponse(query, "null", Status::Error, desc);
+}
+
+void FileRequestHandler::AddQueueNumbersToGetQueueResponse(nlohmann::json& response) {
+    if (!response.contains("MathCore") || !response["MathCore"].is_array()) {
+        return;
+    }
+
+    for (auto& entry : response["MathCore"]) {
+        if (!entry.is_string()) {
+            continue;
+        }
+
+        std::string value = entry.get<std::string>();
+        const auto separator_pos = value.find(':');
+        if (separator_pos == std::string::npos) {
+            continue;
+        }
+
+        std::string id = value.substr(separator_pos + 1);
+        id.erase(id.begin(), std::find_if(id.begin(), id.end(), [](unsigned char ch) { return !std::isspace(ch); }));
+        id.erase(std::find_if(id.rbegin(), id.rend(), [](unsigned char ch) { return !std::isspace(ch); }).base(),
+                 id.end());
+
+        int query = GetQueryByID(id);
+        if (query == 0) {
+            continue;
+        }
+
+        entry = value + ", nats queue: " + std::to_string(query);
+    }
 }
 
 void FileRequestHandler::OnMessageState(const std::string& msg_subject,

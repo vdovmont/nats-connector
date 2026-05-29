@@ -27,7 +27,7 @@ std::string RequestIdBuilder::GenerateTimestamp() {
 #if defined(_WIN32)
     localtime_s(&timeinfo, &time_t_now);
 #else
-    localtime_r(&timeinfo, &time_t_now);
+    localtime_r(&time_t_now, &timeinfo);
 #endif
     oss << std::put_time(&timeinfo, "%Y%m%d_%H%M%S");
 

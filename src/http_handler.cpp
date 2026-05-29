@@ -12,6 +12,7 @@
 
 #include "logger.h"
 #include "nats_manager.h"
+#include "request_id_builder.h"
 
 namespace {
 void TrySetPromiseError(const std::shared_ptr<std::promise<nlohmann::json>>& promise, const std::exception& e) {
@@ -119,24 +120,6 @@ void FileRequestHandler::HandleMathCoreStartup() {
     query_number_ = 0;
     state_loaded_ = true;
     PersistStateLocked();
-}
-
-std::string FileRequestHandler::GenerateID() {
-    auto now = std::chrono::system_clock::now();
-    auto time_t_now = std::chrono::system_clock::to_time_t(now);
-    auto micros = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count() % 1000000;
-
-    // Format: YYYYMMDD_HHMMSS
-    std::ostringstream oss;
-    std::tm timeinfo{};
-#if defined(_WIN32)
-    localtime_s(&timeinfo, &time_t_now);
-#else
-    localtime_r(&time_t_now, &timeinfo);
-#endif
-    oss << std::put_time(&timeinfo, "%Y%m%d_%H%M%S");
-
-    return oss.str();
 }
 
 std::string FileRequestHandler::GetID(int Query) {
@@ -447,14 +430,16 @@ void FileRequestHandler::HandleStart(Poco::Net::HTTPServerRequest& request, std:
         responseJson = GenerateErrorResponse(0, "MathCore is unavailable");
         logger::log_error() << "Received Start request while MathCore is unavailable" << std::endl;
     } else if (!body.str().empty()) {
-        std::string ID = GenerateID();
-        int Query = NextQuery(ID);
-        std::string start_subject = "Start.";
-        start_subject += ID;
-        logger::log() << "Received Start request with ID=" << ID << " (query=" << Query << ")" << std::endl;
+        std::string ID;
+        int Query = 0;
 
         try {
             nlohmann::json message = nlohmann::json::parse(body.str());
+            ID = RequestIdBuilder().Build(message);
+            Query = NextQuery(ID);
+            const std::string start_subject = "Start." + ID;
+            logger::log() << "Received Start request with ID=" << ID << " (query=" << Query << ")" << std::endl;
+
             bool published = nats_manager_.Publish(start_subject, message);
 
             if (published) {
@@ -466,9 +451,13 @@ void FileRequestHandler::HandleStart(Poco::Net::HTTPServerRequest& request, std:
                 logger::log_error() << "Failed to publish Start request with ID=" << ID << std::endl;
             }
         } catch (const std::exception& e) {
-            std::lock_guard<std::mutex> lock(state_mutex_);
-            RemovePairLocked(ID);
-            responseJson = GenerateResponse(Query, ID, Status::Error, "Invalid JSON body");
+            if (!ID.empty()) {
+                std::lock_guard<std::mutex> lock(state_mutex_);
+                RemovePairLocked(ID);
+                responseJson = GenerateResponse(Query, ID, Status::Error, "Invalid JSON body");
+            } else {
+                responseJson = GenerateErrorResponse(0, "Invalid JSON body");
+            }
             logger::log_error() << "Invalid JSON in Start request: " << e.what() << std::endl;
         }
     } else {

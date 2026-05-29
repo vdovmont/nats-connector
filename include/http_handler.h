@@ -44,7 +44,6 @@ class FileRequestHandler : public Poco::Net::HTTPRequestHandler {
     static void RecordMathCoreHeartbeat(const nlohmann::json& payload);
     static void HandleMathCoreStartup();
 
-    std::string GenerateID();
     static std::string GetID(int Query);
     static int GetQueryByID(const std::string& ID);
     static int GetLastQueryNumber();

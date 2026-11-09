@@ -833,6 +833,8 @@ void FileRequestHandler::HandleStart(Poco::Net::HTTPServerRequest& request, std:
 
 void FileRequestHandler::HandleState(std::ostream& ostr, int queue_number) {
     QueueEntry entry;
+    int pending_position = 0;
+    std::optional<QueueEntry> first_active_entry;
     {
         std::lock_guard<std::mutex> lock(state_mutex_);
         auto found = FindQueueEntryByNumberLocked(queue_number);
@@ -842,10 +844,50 @@ void FileRequestHandler::HandleState(std::ostream& ostr, int queue_number) {
         }
         TouchQueueEntryLocked(found->task_id);
         entry = *FindQueueEntryByNumberLocked(queue_number);
+
+        if (entry.instance_id.empty() || entry.state == "pending") {
+            std::vector<int> pending_numbers;
+            for (const auto& [number, queued_entry] : queue_entries_) {
+                if (queued_entry.state == "pending" && queued_entry.instance_id.empty()) {
+                    pending_numbers.push_back(number);
+                }
+                if (!queued_entry.instance_id.empty() && queued_entry.state != "pending" &&
+                    queued_entry.state != "mathcore unavailable/restarted" && !IsTerminalState(queued_entry.state) &&
+                    (!first_active_entry.has_value() || number < first_active_entry->queue_number)) {
+                    first_active_entry = queued_entry;
+                }
+            }
+            std::sort(pending_numbers.begin(), pending_numbers.end());
+            const auto position = std::find(pending_numbers.begin(), pending_numbers.end(), queue_number);
+            if (position != pending_numbers.end()) {
+                pending_position = static_cast<int>(std::distance(pending_numbers.begin(), position)) + 1;
+            }
+        }
     }
 
     if (entry.instance_id.empty() || entry.state == "pending") {
-        ostr << GenerateResponse(queue_number, entry.task_id, Status::Ok, "Task in connector queue").dump();
+        std::string description = "Task in queue: " + std::to_string(pending_position);
+        if (first_active_entry.has_value()) {
+            const nlohmann::json active_state = RequestMathCore(nats_manager_,
+                                                                first_active_entry->instance_id,
+                                                                "State.Request." + first_active_entry->task_id,
+                                                                nlohmann::json::object(),
+                                                                "State " + first_active_entry->task_id);
+            std::string progress;
+            if (active_state.contains("state") && active_state["state"].is_object()) {
+                progress = active_state["state"].value("desc", "");
+            } else if (active_state.contains("message") && active_state["message"].is_string()) {
+                progress = active_state["message"].get<std::string>();
+            }
+            if (!progress.empty()) {
+                description += ", " + progress;
+            }
+        }
+
+        nlohmann::json response;
+        response["solutions"] = nlohmann::json::array();
+        response["state"] = GenerateResponse(queue_number, entry.task_id, Status::Ok, description);
+        ostr << response.dump();
         return;
     }
     if (entry.state == "mathcore unavailable/restarted") {

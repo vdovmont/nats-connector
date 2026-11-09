@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <functional>
 #include <iostream>
@@ -29,6 +30,7 @@ class NatsManager {
     bool IsConnected();
     bool CheckConnection();
     void StartReconnectLoop(const std::string& server_url,
+                            std::chrono::seconds reconnect_interval,
                             std::function<void()> on_connected = {},
                             std::function<void()> on_disconnected = {});
     void StopReconnectLoop();

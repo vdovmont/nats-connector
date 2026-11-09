@@ -66,13 +66,14 @@ bool NatsManager::CheckConnection() {
 }
 
 void NatsManager::StartReconnectLoop(const std::string& server_url,
+                                     std::chrono::seconds reconnect_interval,
                                      std::function<void()> on_connected,
                                      std::function<void()> on_disconnected) {
     StopReconnectLoop();
     server_url_ = server_url;
     stop_reconnect_.store(false, std::memory_order_release);
 
-    reconnect_thread_ = std::thread([this, on_connected, on_disconnected]() {
+    reconnect_thread_ = std::thread([this, reconnect_interval, on_connected, on_disconnected]() {
         bool was_connected = false;
         while (!stop_reconnect_.load(std::memory_order_acquire)) {
             bool is_connected = CheckConnection();
@@ -94,7 +95,7 @@ void NatsManager::StartReconnectLoop(const std::string& server_url,
                 }
                 was_connected = true;
             }
-            std::this_thread::sleep_for(std::chrono::seconds(5));
+            std::this_thread::sleep_for(reconnect_interval);
         }
     });
 }

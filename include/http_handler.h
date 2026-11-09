@@ -1,3 +1,5 @@
+#pragma once
+
 #include <Poco/Net/HTTPRequestHandler.h>
 #include <Poco/Net/HTTPRequestHandlerFactory.h>
 #include <Poco/Net/HTTPServer.h>
@@ -6,20 +8,18 @@
 #include <Poco/Net/ServerSocket.h>
 #include <Poco/Util/ServerApplication.h>
 
-#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
-#include <fstream>
-#include <functional>
 #include <future>
-#include <iostream>
 #include <mutex>
 #include <nlohmann/json.hpp>
-#include <sstream>
+#include <optional>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
+#include "app_settings.h"
 #include "nats_manager.h"
 
 enum class Status : int {
@@ -28,85 +28,108 @@ enum class Status : int {
 };
 std::string ToString(Status s);
 
-// HTTP request handler
+struct QueueEntry {
+    int queue_number = 0;
+    std::string task_id;
+    nlohmann::json payload = nlohmann::json::object();
+    std::int64_t created_epoch_ms = 0;
+    std::int64_t updated_epoch_ms = 0;
+    std::string instance_id;
+    std::string state = "pending";
+};
+
+struct InstanceInfo {
+    std::string instance_id;
+    std::string state = "unavailable";
+    std::string current_task_id;
+    std::int64_t started_at = 0;
+    std::int64_t last_heartbeat_epoch_ms = 0;
+    std::int64_t unavailable_since_epoch_ms = 0;
+    std::string version;
+    std::string commit;
+};
+
+struct LogEntry {
+    std::string instance_id;
+    std::string name;
+    std::int64_t modified_time = 0;
+};
+
 class FileRequestHandler : public Poco::Net::HTTPRequestHandler {
   public:
     explicit FileRequestHandler(NatsManager& nats_manager) : nats_manager_(nats_manager) {}
 
     void handleRequest(Poco::Net::HTTPServerRequest& request, Poco::Net::HTTPServerResponse& response) override;
 
-    // Subscribe to MathCore heartbeat channel; should be called once during startup.
-    static bool StartMathAliveWatcher(NatsManager& nats_manager);
-    static void ResetMathAliveWatcher();
-    static bool IsMathCoreAlive();
+    static void Configure(const AppSettings& settings);
+    static bool StartMathCoreSubscriptions(NatsManager& nats_manager);
+    static void ResetMathCoreSubscriptions();
 
   private:
-    static void RecordMathCoreHeartbeat(const nlohmann::json& payload);
-    static void HandleMathCoreStartup();
-
-    static std::string GetID(int Query);
-    static int GetQueryByID(const std::string& ID);
-    static int GetLastQueryNumber();
+    static std::int64_t NowEpochMilliseconds();
+    static std::int64_t NowEpochSeconds();
     static std::string FormatSystemTime(const std::chrono::system_clock::time_point& time_point);
-    int ParseQuery(std::string& uri);
-    std::string ParseLogId(const std::string& uri);
-    std::string ParseId(const std::string& uri);
-    int ParseQueue(const std::string& uri);
-    nlohmann::json ParseLogsListOptions(const std::string& uri);
-    int NextQuery(const std::string& ID);
+    static std::string FormatEpochSeconds(std::int64_t epoch_seconds);
+    static std::string GenerateRequestId();
+    static std::string ExtractID(const std::string& subject);
+    static std::string StripInstancePrefix(const std::string& id, std::string& instance_id);
+    static nlohmann::json GenerateResponse(int query, const std::string& id, Status status, const std::string& desc);
+    static nlohmann::json GenerateErrorResponse(int query, const std::string& desc);
+
+    static void LoadQueueStateLocked();
+    static void PersistQueueStateLocked();
+    static void CleanupExpiredQueueEntriesLocked();
+    static int AllocateQueueNumberLocked();
+    static std::optional<QueueEntry> FindQueueEntryByNumberLocked(int queue_number);
+    static std::optional<QueueEntry> FindQueueEntryByTaskIdLocked(const std::string& task_id);
+    static void TouchQueueEntryLocked(const std::string& task_id);
+    static void RemoveQueueEntryLocked(const std::string& task_id);
+
+    static void MarkUnavailableInstancesLocked();
+    static std::optional<std::string> FindIdleInstanceLocked();
+    static void DispatchPendingLocked(NatsManager& nats_manager);
+
+    static void OnRegisterRequest(NatsManager& nats_manager, const nlohmann::json& message);
+    static void OnHeartbeat(NatsManager& nats_manager, const nlohmann::json& message);
+    static void OnTaskEvent(NatsManager& nats_manager, const std::string& subject, const nlohmann::json& message);
+    static void OnLogsUpdated(const nlohmann::json& message);
+    static void RefreshLogsList(NatsManager& nats_manager, const std::string& instance_id);
+    static nlohmann::json RequestMathCore(NatsManager& nats_manager,
+                                          const std::string& instance_id,
+                                          const std::string& subject_suffix,
+                                          nlohmann::json payload,
+                                          const std::string& request_name);
+
+    static std::string GetQueryParam(const std::string& uri, const std::string& key);
+    static int ParseQueryNumber(const std::string& uri);
+    static nlohmann::json ParseLogsListOptions(const std::string& uri);
 
     void HandleStart(Poco::Net::HTTPServerRequest& request, std::ostream& ostr);
-    void HandleState(std::ostream& ostr, int ID);
-    void HandleLogsList(std::ostream& ostr, const nlohmann::json& request_options);
-    void HandleGetLog(std::ostream& ostr, const std::string& id);
+    void HandleState(std::ostream& ostr, int queue_number);
+    void HandleLogsList(std::ostream& ostr, const nlohmann::json& options);
+    void HandleGetLog(std::ostream& ostr, const std::string& id, const std::string& instance_filter);
     void HandleGetQueue(std::ostream& ostr);
     void HandleStopCalculation(std::ostream& ostr, const std::string& id);
     void HandleNatsLogsList(std::ostream& ostr);
     void HandleNatsGetLog(std::ostream& ostr, const std::string& id);
-    void WaitForResponse(uint64_t startup_epoch,
-                         const std::string& response_subject,
-                         const std::string& request_name,
-                         std::future<nlohmann::json>& future,
-                         const std::function<nlohmann::json(const std::string&)>& make_error,
-                         const std::function<void()>& on_restart_cleanup,
-                         nlohmann::json& response_json);
-
     nlohmann::json PackLogFileToJson(const std::filesystem::path& log_path);
-    static nlohmann::json GenerateResponse(const int query,
-                                           const std::string& ID,
-                                           const enum Status status,
-                                           const std::string& desc);
-    static nlohmann::json GenerateErrorResponse(const int query, const std::string& desc);
-    static void AddQueueNumbersToGetQueueResponse(nlohmann::json& response);
-    static void OnMessageState(const std::string& msg_subject,
-                               const nlohmann::json& message,
-                               nlohmann::json& state,
-                               const int Query);
-
-    static void EnsureStateLoadedLocked();
-    static void PersistStateLocked();
-    static void RemovePairLocked(const std::string& id);
-    static void RemovePersistedPairLocked(const std::string& id);
 
     NatsManager& nats_manager_;
-    static int query_number_;
-    static std::unordered_map<std::string, int> id_query_map_;
-    static std::unordered_map<std::string, int> persisted_id_query_map_;
-    static std::mutex state_mutex_;
-    static bool state_loaded_;
-    static const std::string kStateFilePath;
-    static const std::chrono::system_clock::time_point application_start_time_;
 
-    static std::atomic<bool> mathcore_alive_;
-    static std::atomic<uint64_t> mathcore_startup_epoch_;
-    static std::chrono::steady_clock::time_point last_mathcore_heartbeat_;
-    static std::mutex health_mutex_;
-    static bool mathcore_subscription_active_;
-    static const std::chrono::seconds kMathAliveTimeout;
-    static const std::string kMathAliveSubject;
+    static AppSettings settings_;
+    static std::mutex state_mutex_;
+    static bool queue_state_loaded_;
+    static bool assignment_grace_dispatch_scheduled_;
+    static const std::string kQueueStateFilePath;
+    static const std::chrono::system_clock::time_point application_start_time_;
+    static std::chrono::steady_clock::time_point assignment_enabled_at_;
+    static std::unordered_map<int, QueueEntry> queue_entries_;
+    static std::unordered_map<std::string, int> task_queue_numbers_;
+    static std::unordered_map<std::string, InstanceInfo> instances_;
+    static std::vector<LogEntry> logs_index_;
+    static bool subscriptions_active_;
 };
 
-// Factory to create handlers (needed by Poco)
 class FileRequestHandlerFactory : public Poco::Net::HTTPRequestHandlerFactory {
   public:
     explicit FileRequestHandlerFactory(NatsManager& nats_manager) : nats_manager_(nats_manager) {}

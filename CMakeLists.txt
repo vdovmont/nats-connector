@@ -98,6 +98,7 @@ add_library(${PROJECT_LIBS}
     src/nats_manager.cpp
     src/logger.cpp
     src/request_id_builder.cpp
+    src/app_settings.cpp
 )
 target_include_directories(${PROJECT_LIBS} PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include

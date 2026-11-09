@@ -551,6 +551,11 @@ void FileRequestHandler::RefreshLogsList(NatsManager& nats_manager, const std::s
     }
 
     std::lock_guard<std::mutex> lock(state_mutex_);
+    const auto instance = instances_.find(instance_id);
+    if (instance == instances_.end()) {
+        logger::log() << "Ignoring LogsList response for released instance " << instance_id << std::endl;
+        return;
+    }
     logs_index_.erase(std::remove_if(logs_index_.begin(),
                                      logs_index_.end(),
                                      [&](const LogEntry& entry) { return entry.instance_id == instance_id; }),

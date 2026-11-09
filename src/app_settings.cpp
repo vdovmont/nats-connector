@@ -13,13 +13,14 @@
 
 namespace {
 
-constexpr std::array<std::pair<const char*, const char*>, 6> kDefaultSettings = {{
+constexpr std::array<std::pair<const char*, const char*>, 7> kDefaultSettings = {{
     {"nats_url", "nats://localhost:4222"},
     {"nats_reconnect_interval_sec", "5"},
     {"queue_entry_timeout_sec", "30"},
     {"mathcore_instance_ttl_sec", "5"},
     {"mathcore_assignment_grace_sec", "5"},
     {"mathcore_instance_release_sec", "10"},
+    {"mathcore_health_check_interval_sec", "1"},
 }};
 
 void WriteDefaultSettings(std::ostream& output) {
@@ -136,6 +137,9 @@ AppSettings LoadAppSettings(const std::string& path) {
     }
     if (auto value = ParseInt(values, "mathcore_instance_release_sec", 1)) {
         settings.mathcore_instance_release = std::chrono::seconds(*value);
+    }
+    if (auto value = ParseInt(values, "mathcore_health_check_interval_sec", 1)) {
+        settings.mathcore_health_check_interval = std::chrono::seconds(*value);
     }
     return settings;
 }

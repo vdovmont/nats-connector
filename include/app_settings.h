@@ -10,6 +10,7 @@ struct AppSettings {
     std::chrono::seconds mathcore_instance_ttl{5};
     std::chrono::seconds mathcore_assignment_grace{5};
     std::chrono::seconds mathcore_instance_release{10};
+    std::chrono::seconds mathcore_health_check_interval{1};
 };
 
 AppSettings LoadAppSettings(const std::string& path = "settings.ini");

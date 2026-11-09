@@ -126,6 +126,7 @@ class FileRequestHandler : public Poco::Net::HTTPRequestHandler {
     static std::mutex state_mutex_;
     static bool queue_state_loaded_;
     static bool assignment_grace_dispatch_scheduled_;
+    static bool health_monitor_scheduled_;
     static const std::string kQueueStateFilePath;
     static const std::chrono::system_clock::time_point application_start_time_;
     static std::chrono::steady_clock::time_point assignment_enabled_at_;

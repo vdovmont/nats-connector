@@ -47,6 +47,7 @@ AppSettings FileRequestHandler::settings_;
 std::mutex FileRequestHandler::state_mutex_;
 bool FileRequestHandler::queue_state_loaded_ = false;
 bool FileRequestHandler::assignment_grace_dispatch_scheduled_ = false;
+bool FileRequestHandler::health_monitor_scheduled_ = false;
 const std::string FileRequestHandler::kQueueStateFilePath = "queue_state.json";
 const std::chrono::system_clock::time_point FileRequestHandler::application_start_time_ =
     std::chrono::system_clock::now();
@@ -687,6 +688,25 @@ bool FileRequestHandler::StartMathCoreSubscriptions(NatsManager& nats_manager) {
         FileRequestHandler::OnLogsUpdated(message);
     }) && ok;
     subscriptions_active_ = ok;
+    if (ok && !health_monitor_scheduled_) {
+        health_monitor_scheduled_ = true;
+        StartBackgroundWorker([]() {
+            while (!FileRequestHandler::stopping_.load(std::memory_order_acquire)) {
+                std::unique_lock<std::mutex> worker_lock(FileRequestHandler::workers_mutex_);
+                const bool stopping = FileRequestHandler::workers_cv_.wait_for(
+                    worker_lock, FileRequestHandler::settings_.mathcore_health_check_interval, []() {
+                        return FileRequestHandler::stopping_.load(std::memory_order_acquire);
+                    });
+                worker_lock.unlock();
+                if (stopping) {
+                    return;
+                }
+
+                std::lock_guard<std::mutex> state_lock(FileRequestHandler::state_mutex_);
+                FileRequestHandler::MarkUnavailableInstancesLocked();
+            }
+        });
+    }
     if (ok && !assignment_grace_dispatch_scheduled_) {
         assignment_grace_dispatch_scheduled_ = true;
         StartBackgroundWorker([&nats_manager]() {

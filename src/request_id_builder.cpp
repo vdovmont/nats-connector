@@ -5,6 +5,11 @@
 #include <sstream>
 
 std::string RequestIdBuilder::Build(const nlohmann::json& request) const {
+    return Build(request, std::chrono::system_clock::now());
+}
+
+std::string RequestIdBuilder::Build(const nlohmann::json& request,
+                                    const std::chrono::system_clock::time_point& timestamp) const {
     std::string company = ExtractString(request, "company");
     if (company.empty()) {
         company = "0";
@@ -15,12 +20,11 @@ std::string RequestIdBuilder::Build(const nlohmann::json& request) const {
         task_number = "0";
     }
 
-    return company + "-" + task_number + "-" + GenerateTimestamp();
+    return company + "-" + task_number + "-" + GenerateTimestamp(timestamp);
 }
 
-std::string RequestIdBuilder::GenerateTimestamp() {
-    auto now = std::chrono::system_clock::now();
-    auto time_t_now = std::chrono::system_clock::to_time_t(now);
+std::string RequestIdBuilder::GenerateTimestamp(const std::chrono::system_clock::time_point& timestamp) {
+    auto time_t_now = std::chrono::system_clock::to_time_t(timestamp);
 
     std::ostringstream oss;
     std::tm timeinfo{};

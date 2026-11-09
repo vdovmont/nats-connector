@@ -795,11 +795,17 @@ void FileRequestHandler::HandleStart(Poco::Net::HTTPServerRequest& request, std:
 
     try {
         nlohmann::json message = nlohmann::json::parse(body.str());
-        const std::string task_id = RequestIdBuilder().Build(message);
+        std::string task_id;
         int queue_number = 0;
         {
             std::lock_guard<std::mutex> lock(state_mutex_);
             queue_number = AllocateQueueNumberLocked();
+            const auto base_timestamp = std::chrono::system_clock::now();
+            std::chrono::seconds timestamp_offset{0};
+            do {
+                task_id = RequestIdBuilder().Build(message, base_timestamp + timestamp_offset);
+                ++timestamp_offset;
+            } while (task_queue_numbers_.find(task_id) != task_queue_numbers_.end());
             const std::int64_t now = NowEpochMilliseconds();
             QueueEntry entry;
             entry.queue_number = queue_number;

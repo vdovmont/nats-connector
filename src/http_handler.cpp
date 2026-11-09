@@ -56,10 +56,40 @@ std::unordered_map<std::string, int> FileRequestHandler::task_queue_numbers_;
 std::unordered_map<std::string, InstanceInfo> FileRequestHandler::instances_;
 std::vector<LogEntry> FileRequestHandler::logs_index_;
 bool FileRequestHandler::subscriptions_active_ = false;
+std::atomic<bool> FileRequestHandler::stopping_{false};
+std::mutex FileRequestHandler::workers_mutex_;
+std::condition_variable FileRequestHandler::workers_cv_;
+std::vector<std::thread> FileRequestHandler::workers_;
 
 void FileRequestHandler::Configure(const AppSettings& settings) {
     settings_ = settings;
+    stopping_.store(false, std::memory_order_release);
     assignment_enabled_at_ = std::chrono::steady_clock::now() + settings_.mathcore_assignment_grace;
+}
+
+bool FileRequestHandler::StartBackgroundWorker(std::function<void()> worker) {
+    std::lock_guard<std::mutex> lock(workers_mutex_);
+    if (stopping_.load(std::memory_order_acquire)) {
+        return false;
+    }
+    workers_.emplace_back([worker = std::move(worker)]() { worker(); });
+    return true;
+}
+
+void FileRequestHandler::ShutdownBackgroundWorkers() {
+    stopping_.store(true, std::memory_order_release);
+    workers_cv_.notify_all();
+
+    std::vector<std::thread> workers;
+    {
+        std::lock_guard<std::mutex> lock(workers_mutex_);
+        workers.swap(workers_);
+    }
+    for (auto& worker : workers) {
+        if (worker.joinable()) {
+            worker.join();
+        }
+    }
 }
 
 std::int64_t FileRequestHandler::NowEpochMilliseconds() {
@@ -387,10 +417,13 @@ void FileRequestHandler::OnRegisterRequest(NatsManager& nats_manager, const nloh
 
     nats_manager.Publish("MathCore.Register.Response." + boot_id, {{"instance_id", assigned_id}});
     logger::log() << "Registered MathCore instance " << assigned_id << std::endl;
-    std::thread([&nats_manager, assigned_id]() {
+    StartBackgroundWorker([&nats_manager, assigned_id]() {
         std::this_thread::sleep_for(std::chrono::seconds(1));
+        if (FileRequestHandler::stopping_.load(std::memory_order_acquire)) {
+            return;
+        }
         FileRequestHandler::RefreshLogsList(nats_manager, assigned_id);
-    }).detach();
+    });
     {
         std::lock_guard<std::mutex> lock(state_mutex_);
         DispatchPendingLocked(nats_manager);
@@ -427,9 +460,8 @@ void FileRequestHandler::OnHeartbeat(NatsManager& nats_manager, const nlohmann::
     }
 
     logger::log() << "Recovered MathCore instance " << instance_id << " from heartbeat" << std::endl;
-    std::thread([&nats_manager, instance_id]() {
-        FileRequestHandler::RefreshLogsList(nats_manager, instance_id);
-    }).detach();
+    StartBackgroundWorker(
+        [&nats_manager, instance_id]() { FileRequestHandler::RefreshLogsList(nats_manager, instance_id); });
     {
         std::lock_guard<std::mutex> lock(state_mutex_);
         DispatchPendingLocked(nats_manager);
@@ -559,7 +591,21 @@ nlohmann::json FileRequestHandler::RequestMathCore(NatsManager& nats_manager,
         return {{"error", "Failed to publish MathCore request"}};
     }
 
-    if (future.wait_for(std::chrono::seconds(61)) != std::future_status::ready) {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(61);
+    while (!stopping_.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < deadline) {
+        if (future.wait_for(std::chrono::milliseconds(100)) == std::future_status::ready) {
+            nlohmann::json response = future.get();
+            nats_manager.Unsubscribe(response_subject);
+            return response;
+        }
+    }
+
+    if (stopping_.load(std::memory_order_acquire)) {
+        nats_manager.Unsubscribe(response_subject);
+        return {{"error", "Application shutting down"}};
+    }
+
+    if (future.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready) {
         nats_manager.Unsubscribe(response_subject);
         logger::log_error() << "Timeout waiting for " << request_name << std::endl;
         return {{"error", "MathCore timeout reached"}};
@@ -643,11 +689,18 @@ bool FileRequestHandler::StartMathCoreSubscriptions(NatsManager& nats_manager) {
     subscriptions_active_ = ok;
     if (ok && !assignment_grace_dispatch_scheduled_) {
         assignment_grace_dispatch_scheduled_ = true;
-        std::thread([&nats_manager]() {
-            std::this_thread::sleep_until(FileRequestHandler::assignment_enabled_at_);
+        StartBackgroundWorker([&nats_manager]() {
+            std::unique_lock<std::mutex> worker_lock(FileRequestHandler::workers_mutex_);
+            FileRequestHandler::workers_cv_.wait_until(worker_lock, FileRequestHandler::assignment_enabled_at_, []() {
+                return FileRequestHandler::stopping_.load(std::memory_order_acquire);
+            });
+            worker_lock.unlock();
+            if (FileRequestHandler::stopping_.load(std::memory_order_acquire)) {
+                return;
+            }
             std::lock_guard<std::mutex> lock(FileRequestHandler::state_mutex_);
             FileRequestHandler::DispatchPendingLocked(nats_manager);
-        }).detach();
+        });
     }
     return ok;
 }
@@ -1015,6 +1068,8 @@ int ServerApp::main(const std::vector<std::string>&) {
     waitForTerminationRequest();
     srv.stop();
     nats_manager.StopReconnectLoop();
+    FileRequestHandler::ShutdownBackgroundWorkers();
+    nats_manager.Disconnect();
 
     return Application::EXIT_OK;
 }

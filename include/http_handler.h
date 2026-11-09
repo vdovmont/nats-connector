@@ -8,14 +8,18 @@
 #include <Poco/Net/ServerSocket.h>
 #include <Poco/Util/ServerApplication.h>
 
+#include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <future>
 #include <mutex>
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -64,6 +68,7 @@ class FileRequestHandler : public Poco::Net::HTTPRequestHandler {
     static void Configure(const AppSettings& settings);
     static bool StartMathCoreSubscriptions(NatsManager& nats_manager);
     static void ResetMathCoreSubscriptions();
+    static void ShutdownBackgroundWorkers();
 
   private:
     static std::int64_t NowEpochMilliseconds();
@@ -75,6 +80,7 @@ class FileRequestHandler : public Poco::Net::HTTPRequestHandler {
     static std::string StripInstancePrefix(const std::string& id, std::string& instance_id);
     static nlohmann::json GenerateResponse(int query, const std::string& id, Status status, const std::string& desc);
     static nlohmann::json GenerateErrorResponse(int query, const std::string& desc);
+    static bool StartBackgroundWorker(std::function<void()> worker);
 
     static void LoadQueueStateLocked();
     static void PersistQueueStateLocked();
@@ -128,6 +134,10 @@ class FileRequestHandler : public Poco::Net::HTTPRequestHandler {
     static std::unordered_map<std::string, InstanceInfo> instances_;
     static std::vector<LogEntry> logs_index_;
     static bool subscriptions_active_;
+    static std::atomic<bool> stopping_;
+    static std::mutex workers_mutex_;
+    static std::condition_variable workers_cv_;
+    static std::vector<std::thread> workers_;
 };
 
 class FileRequestHandlerFactory : public Poco::Net::HTTPRequestHandlerFactory {
